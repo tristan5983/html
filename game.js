@@ -7,7 +7,10 @@ let currentBet = 10;
 let reels = [];
 let reelMeshes = [];
 
-// *** UPGRADE: Symbols now map to actual file names ***
+// Global variable to hold the promise of loaded textures
+let textureLoadPromise = null;
+
+// *** Symbols now map to actual file names ***
 const symbolKeys = ['BAR', 'CHERRY', 'CROWN', 'DIAMOND', 'FREE_SPIN', 'SCATTER', 'SEVEN', 'WILD'];
 const symbolImageMap = {
     'BAR': { key: 'BAR', path: '/images/bar.png' },
@@ -19,6 +22,36 @@ const symbolImageMap = {
     'SEVEN': { key: 'SEVEN', path: '/images/seven.png' },
     'WILD': { key: 'WILD', path: '/images/wild.png' }
 };
+
+// --- PRELOAD FUNCTION ---
+// Loads all textures and returns a promise that resolves with the loaded texture map
+function preloadTextures(scene) {
+    const texturePromises = [];
+    const loadedTextures = {};
+
+    for (const key in symbolImageMap) {
+        const data = symbolImageMap[key];
+        
+        // Create the texture
+        const texture = new BABYLON.Texture(data.path, scene, 
+            false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+        
+        loadedTextures[key] = texture;
+        
+        // Push the promise that resolves when the texture is ready
+        texturePromises.push(new Promise((resolve, reject) => {
+            texture.onLoadObservable.add(() => resolve());
+            texture.onErrorObservable.add((error) => {
+                console.error(`Failed to load texture: ${data.path}`, error);
+                reject(error);
+            });
+        }));
+    }
+    
+    // Return the promise that waits for ALL textures
+    return Promise.all(texturePromises).then(() => loadedTextures);
+}
+
 
 // Auth functions
 async function login() {
@@ -244,21 +277,36 @@ function backToLobby() {
         });
 }
 
+// --- INIT GAME FUNCTION (UPDATED TO AWAIT TEXTURES) ---
 function initGame() {
     const canvas = document.getElementById('renderCanvas');
     gameEngine = new BABYLON.Engine(canvas, true);
-    gameScene = createScene(canvas); 
     
-    gameEngine.runRenderLoop(() => {
-        gameScene.render();
-    });
-    
-    window.addEventListener('resize', () => {
-        gameEngine.resize();
+    // A. Start loading textures immediately on a temporary scene
+    textureLoadPromise = preloadTextures(new BABYLON.Scene(gameEngine));
+
+    textureLoadPromise.then((loadedTextures) => {
+        // B. Once textures are ready, create the scene
+        gameScene = createScene(canvas, loadedTextures); 
+        
+        // C. Start the render loop
+        gameEngine.runRenderLoop(() => {
+            gameScene.render();
+        });
+        
+        window.addEventListener('resize', () => {
+            gameEngine.resize();
+        });
+
+    }).catch(error => {
+        // D. Handle a critical error if textures fail to load
+        console.error("Critical error: One or more textures failed to load.", error);
+        showError("Game assets failed to load. Please refresh.");
     });
 }
 
-function createScene(canvas) {
+// --- CREATE SCENE FUNCTION (UPDATED SIGNATURE) ---
+function createScene(canvas, loadedTextures) {
     const scene = new BABYLON.Scene(gameEngine);
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     
@@ -279,13 +327,14 @@ function createScene(canvas) {
         Math.PI / 3, 2, scene);
     spotLight.intensity = 1.5;
     
-    createSlotMachine(scene);
+    createSlotMachine(scene, loadedTextures);
     createEnvironment(scene);
     
     return scene;
 }
 
-function createSlotMachine(scene) {
+// --- CREATE SLOT MACHINE FUNCTION (UPDATED SIGNATURE) ---
+function createSlotMachine(scene, loadedTextures) {
     const machineMat = new BABYLON.StandardMaterial("machineMat", scene);
     machineMat.diffuseColor = new BABYLON.Color3(0.8, 0.1, 0.2);
     machineMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
@@ -317,7 +366,7 @@ function createSlotMachine(scene) {
         reelContainer.material = reelMat;
         reelContainer.freezeWorldMatrix(); 
         
-        const reel = createReel(scene, i);
+        const reel = createReel(scene, i, loadedTextures);
         reel.position = new BABYLON.Vector3(positions[i], 0, 1.8);
         reelMeshes.push(reel);
         
@@ -333,18 +382,12 @@ function createSlotMachine(scene) {
     }
 }
 
-function createReel(scene, index) {
+// --- CREATE REEL FUNCTION (UPDATED TO USE PRE-LOADED TEXTURES) ---
+function createReel(scene, index, loadedTextures) {
     const symbolTexts = [];
     const parent = new BABYLON.TransformNode(`reel${index}`, scene);
     
-    // Load all textures once and reuse them for better performance
-    const loadedTextures = {};
-    for (const key in symbolImageMap) {
-        const data = symbolImageMap[key];
-        // Path must be relative to the public folder
-        loadedTextures[key] = new BABYLON.Texture(data.path, scene, 
-            false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
-    }
+    // No texture loading needed here; we use the loadedTextures map
     
     for (let i = 0; i < 20; i++) {
         const plane = BABYLON.MeshBuilder.CreatePlane(`symbol${index}_${i}`, 
@@ -357,7 +400,7 @@ function createReel(scene, index) {
         
         const mat = new BABYLON.StandardMaterial(`symbolMat${index}_${i}`, scene);
         
-        // Choose a random symbol key and load its texture
+        // Choose a random symbol key and USE its texture from the pre-loaded map
         const symbolKey = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
         const texture = loadedTextures[symbolKey];
 
@@ -368,7 +411,7 @@ function createReel(scene, index) {
         // Use the texture as the EMISSIVE map for brightness
         mat.emissiveTexture = texture; 
         
-        // *** FIX 4: Ensure ALL lighting properties are black to prevent white noise/specular highlights ***
+        // Ensure ALL lighting properties are black to prevent white noise/specular highlights
         mat.emissiveColor = new BABYLON.Color3(1, 1, 1); 
         mat.diffuseColor = new BABYLON.Color3(0, 0, 0); 
         mat.specularColor = new BABYLON.Color3(0, 0, 0); 
@@ -445,6 +488,7 @@ async function spin() {
     document.getElementById('spinButton').disabled = false;
 }
 
+// --- SPIN REEL FUNCTION (FIXED ANIMATION CLEANUP) ---
 function spinReel(reel, index) {
     return new Promise((resolve) => {
         const animationName = `reelSpinAnim${index}`;
@@ -499,7 +543,7 @@ function spinReel(reel, index) {
 async function submitGameResult(symbols) {
     let winAmount = 0;
     
-    // *** NOTE: The switch statement now uses your string symbol keys ***
+    // The switch statement now uses your string symbol keys
     if (symbols[0] === symbols[1] && symbols[1] === symbols[2]) {
         const symbol = symbols[0];
         switch(symbol) {
