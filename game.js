@@ -382,12 +382,10 @@ function createSlotMachine(scene, loadedTextures) {
     }
 }
 
-// --- CREATE REEL FUNCTION (UPDATED TO USE PRE-LOADED TEXTURES) ---
+// --- CREATE REEL FUNCTION (FIXED EMISSIVE COLOR) ---
 function createReel(scene, index, loadedTextures) {
     const symbolTexts = [];
     const parent = new BABYLON.TransformNode(`reel${index}`, scene);
-    
-    // No texture loading needed here; we use the loadedTextures map
     
     for (let i = 0; i < 20; i++) {
         const plane = BABYLON.MeshBuilder.CreatePlane(`symbol${index}_${i}`, 
@@ -411,8 +409,9 @@ function createReel(scene, index, loadedTextures) {
         // Use the texture as the EMISSIVE map for brightness
         mat.emissiveTexture = texture; 
         
-        // Ensure ALL lighting properties are black to prevent white noise/specular highlights
-        mat.emissiveColor = new BABYLON.Color3(1, 1, 1); 
+        // *** CRITICAL FIX: Change default emissive color to dark gray (0.1, 0.1, 0.1). 
+        // If the texture fails to load (404), the plane will turn dark gray/black instead of blinding white. ***
+        mat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); 
         mat.diffuseColor = new BABYLON.Color3(0, 0, 0); 
         mat.specularColor = new BABYLON.Color3(0, 0, 0); 
         mat.ambientColor = new BABYLON.Color3(0, 0, 0); 
