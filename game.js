@@ -7,7 +7,21 @@ let currentBet = 10;
 let reels = [];
 let reelMeshes = [];
 
-const symbols = ['🍒', '🍋', '🍊', '🍇', '⭐', '💎', '7️⃣'];
+// *** UPGRADE 1: Symbols now map to actual file names ***
+const symbolKeys = ['BAR', 'CHERRY', 'CROWN', 'DIAMOND', 'FREE_SPIN', 'SCATTER', 'SEVEN', 'WILD'];
+const symbolImageMap = {
+    'BAR': { key: 'BAR', path: '/images/bar.png' },
+    'CHERRY': { key: 'CHERRY', path: '/images/cherry.png' },
+    'CROWN': { key: 'CROWN', path: '/images/crown.png' },
+    'DIAMOND': { key: 'DIAMOND', path: '/images/diamond.png' },
+    'FREE_SPIN': { key: 'FREE_SPIN', path: '/images/free_spin.png' },
+    'SCATTER': { key: 'SCATTER', path: '/images/scatter.png' },
+    'SEVEN': { key: 'SEVEN', path: '/images/seven.png' },
+    'WILD': { key: 'WILD', path: '/images/wild.png' }
+};
+
+// --- NOTE: Update the Win Logic to use the new string keys ---
+// The old logic used emojis like '💎'. You must update server.js and the client switch case.
 
 // Auth functions
 async function login() {
@@ -271,9 +285,6 @@ function createScene(canvas) {
     createSlotMachine(scene);
     createEnvironment(scene);
     
-    // Optional: Enable the inspector for debugging (uncomment if needed)
-    // scene.debugLayer.show();
-    
     return scene;
 }
 
@@ -329,39 +340,33 @@ function createReel(scene, index) {
     const symbolTexts = [];
     const parent = new BABYLON.TransformNode(`reel${index}`, scene);
     
+    // Load all textures once and reuse them for better performance
+    const loadedTextures = {};
+    for (const key in symbolImageMap) {
+        const data = symbolImageMap[key];
+        // The path must be relative to the public folder, so use just /images/...
+        loadedTextures[key] = new BABYLON.Texture(data.path, scene, 
+            false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+    }
+    
     for (let i = 0; i < 20; i++) {
         const plane = BABYLON.MeshBuilder.CreatePlane(`symbol${index}_${i}`, 
             {width: 2, height: 2}, scene);
         
-        // *** FIX 1: Z-Position adjustment to ensure symbol plane (z=1.95) renders 
-        // in front of the yellow frame (z=1.9) ***
+        // Z-Position adjustment to ensure symbol plane (z=1.95) renders 
+        // in front of the yellow frame (z=1.9)
         plane.position = new BABYLON.Vector3(0, i * 2.5 - 25, 0.15); 
         plane.parent = parent;
         
         const mat = new BABYLON.StandardMaterial(`symbolMat${index}_${i}`, scene);
-        const texture = new BABYLON.DynamicTexture(`symbolTex${index}_${i}`, 
-            {width: 256, height: 256}, scene, true);
         
-        const ctx = texture.getContext();
-        
-        // Draw the symbol onto the texture
-        ctx.fillStyle = "black";
-        ctx.fillRect(0, 0, 256, 256);
-        
-        const symbol = symbols[Math.floor(Math.random() * symbols.length)];
-        
-        // Draw the text (Emojis)
-        ctx.font = "bold 180px Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = "white"; // Draw the white text on black background
-        ctx.fillText(symbol, 128, 128);
-        
-        texture.update();
-        
-        // *** FIX 2: Material settings for Emissive Texture and Visibility ***
-        mat.backFaceCulling = false; // Render both sides
-        mat.hasAlpha = true;         // Enables transparency blending
+        // *** UPGRADE 2: Choose a random symbol key and load its texture ***
+        const symbolKey = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
+        const texture = loadedTextures[symbolKey];
+
+        // Material settings for Emissive Texture and Visibility
+        mat.backFaceCulling = false;
+        mat.hasAlpha = true;         
         
         // Use the texture as the EMISSIVE map for brightness and visibility
         mat.emissiveTexture = texture; 
@@ -371,7 +376,8 @@ function createReel(scene, index) {
         
         plane.material = mat;
         
-        symbolTexts.push({plane, symbol, texture});
+        // The stored symbol key is now the string name (e.g., 'DIAMOND')
+        symbolTexts.push({plane, symbol: symbolKey, texture});
     }
     
     reels[index] = symbolTexts;
@@ -458,7 +464,7 @@ function spinReel(reel, index) {
         // Calculate the required final position to land perfectly after the full cycles
         const finalPositionTarget = startY - (cycles * reelHeight) + (startY % reelHeight) + targetY;
         
-        // --- UPGRADE: Use Babylon.js Easing for Realistic Stop ---
+        // Use Babylon.js Easing for Realistic Stop
         const reelAnimation = new BABYLON.Animation(
             animationName, 
             "position.y", 
@@ -482,12 +488,10 @@ function spinReel(reel, index) {
         // Start the animation
         // We set the speedRatio to spread the 100 frames across the total duration
         gameScene.beginDirectAnimation(reel, [reelAnimation], 0, 100, false, duration / 100, () => {
-            // Once the animation is done, clean up and resolve the promise
             
             reel.position.y = targetY; // Snap to the calculated final position
             
-            // *** FIX FOR: TypeError: reelAnimation.dispose is not a function ***
-            // The local reelAnimation object does not need to be disposed.
+            // Fix for: TypeError: reelAnimation.dispose is not a function
             resolve();
         });
     });
@@ -496,16 +500,19 @@ function spinReel(reel, index) {
 async function submitGameResult(symbols) {
     let winAmount = 0;
     
+    // *** NOTE: You must update the switch statement below to use the new string symbol keys ***
+    // The old logic used emojis like '💎'. Update this to match your server logic.
     if (symbols[0] === symbols[1] && symbols[1] === symbols[2]) {
         const symbol = symbols[0];
         switch(symbol) {
-            case '💎': winAmount = currentBet * 100; break;
-            case '7️⃣': winAmount = currentBet * 50; break;
-            case '⭐': winAmount = currentBet * 25; break;
-            case '🍇': winAmount = currentBet * 15; break;
-            case '🍊': winAmount = currentBet * 10; break;
-            case '🍋': winAmount = currentBet * 8; break;
-            case '🍒': winAmount = currentBet * 5; break;
+            case 'DIAMOND': winAmount = currentBet * 100; break;
+            case 'SEVEN': winAmount = currentBet * 50; break;
+            case 'CROWN': winAmount = currentBet * 25; break;
+            case 'BAR': winAmount = currentBet * 15; break;
+            case 'WILD': winAmount = currentBet * 10; break;
+            case 'CHERRY': winAmount = currentBet * 8; break;
+            case 'SCATTER': winAmount = currentBet * 5; break;
+            default: winAmount = currentBet * 2; break; // Placeholder win for any other match
         }
         showResult(`🎉 JACKPOT! +$${winAmount.toFixed(2)} 🎉`);
     } else if (symbols[0] === symbols[1] || symbols[1] === symbols[2]) {
