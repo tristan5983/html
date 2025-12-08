@@ -23,8 +23,7 @@ const symbolImageMap = {
     'WILD': { key: 'WILD', path: '/images/wild.png' }
 };
 
-// --- PRELOAD FUNCTION ---
-// Loads all textures and returns a promise that resolves with the loaded texture map
+// --- PRELOAD FUNCTION (FIXED ERROR) ---
 function preloadTextures(scene) {
     const texturePromises = [];
     const loadedTextures = {};
@@ -40,16 +39,38 @@ function preloadTextures(scene) {
         
         // Push the promise that resolves when the texture is ready
         texturePromises.push(new Promise((resolve, reject) => {
-            texture.onLoadObservable.add(() => resolve());
-            texture.onErrorObservable.add((error) => {
-                console.error(`Failed to load texture: ${data.path}`, error);
-                reject(error);
-            });
+            
+            // CRITICAL FIX: Ensure the texture object is valid and has the observables
+            if (texture && texture.onLoadObservable && texture.onErrorObservable) {
+                texture.onLoadObservable.add(() => resolve());
+                texture.onErrorObservable.add((error) => {
+                    console.error(`Failed to load texture: ${data.path}`, error);
+                    reject(error);
+                });
+            } else if (texture) {
+                // Fallback for immediate synchronous loading (if it happened to be cached)
+                if (texture.isReady()) {
+                    resolve();
+                } else {
+                    // Log a warning and resolve to prevent blocking, but this texture might fail visually later
+                    console.warn(`Texture for ${key} was created but is not ready and missing observables.`);
+                    resolve(); 
+                }
+            } else {
+                // If the texture object is undefined (e.g., path error caused synchronous failure)
+                reject(`Texture object is undefined for key: ${key} at path: ${data.path}`);
+            }
         }));
     }
     
     // Return the promise that waits for ALL textures
-    return Promise.all(texturePromises).then(() => loadedTextures);
+    return Promise.all(texturePromises)
+        .then(() => loadedTextures)
+        .catch(error => {
+            console.error("One or more textures failed to preload, but the process continues:", error);
+            // We re-throw the error to be caught in initGame, which then shows an error message.
+            throw error; 
+        });
 }
 
 
@@ -301,7 +322,7 @@ function initGame() {
     }).catch(error => {
         // D. Handle a critical error if textures fail to load
         console.error("Critical error: One or more textures failed to load.", error);
-        showError("Game assets failed to load. Please refresh.");
+        showError("Game assets failed to load. Please refresh and check image paths in console.");
     });
 }
 
@@ -382,7 +403,7 @@ function createSlotMachine(scene, loadedTextures) {
     }
 }
 
-// --- CREATE REEL FUNCTION (FIXED EMISSIVE COLOR) ---
+// --- CREATE REEL FUNCTION (FINAL VISUAL FIX) ---
 function createReel(scene, index, loadedTextures) {
     const symbolTexts = [];
     const parent = new BABYLON.TransformNode(`reel${index}`, scene);
@@ -406,12 +427,16 @@ function createReel(scene, index, loadedTextures) {
         mat.backFaceCulling = false;
         mat.hasAlpha = true;         
         
-        // Use the texture as the EMISSIVE map for brightness
-        mat.emissiveTexture = texture; 
-        
-        // *** CRITICAL FIX: Change default emissive color to dark gray (0.1, 0.1, 0.1). 
-        // If the texture fails to load (404), the plane will turn dark gray/black instead of blinding white. ***
-        mat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.1); 
+        // Set emissive texture and color only if the texture is verified ready
+        if (texture && texture.isReady()) {
+            mat.emissiveTexture = texture; 
+            mat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Full white emission to display the image color
+        } else {
+            // Fallback to dark gray background if texture failed or wasn't ready
+            mat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05); 
+        }
+
+        // Ensure ALL lighting properties are black to prevent scene light interference
         mat.diffuseColor = new BABYLON.Color3(0, 0, 0); 
         mat.specularColor = new BABYLON.Color3(0, 0, 0); 
         mat.ambientColor = new BABYLON.Color3(0, 0, 0); 
