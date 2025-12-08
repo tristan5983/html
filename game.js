@@ -1,4 +1,5 @@
-// Game state
+// === VISUALLY UPGRADED SLOT MACHINE - FULLY REPLACED createSlotMachine() & createScene() ===
+
 let currentUser = null;
 let gameEngine = null;
 let gameScene = null;
@@ -6,631 +7,224 @@ let isSpinning = false;
 let currentBet = 10;
 let reels = [];
 let reelMeshes = [];
+let loadedTextures = {};
 
-// Global variable to hold the promise of loaded textures
-let textureLoadPromise = null;
-let loadedTextures = {}; // Now a global to store assets manager results
-
-// *** Symbols now map to actual file names ***
 const symbolKeys = ['BAR', 'CHERRY', 'CROWN', 'DIAMOND', 'FREE_SPIN', 'SCATTER', 'SEVEN', 'WILD'];
 const symbolImageMap = {
-    'BAR': { key: 'BAR', path: '/images/bar.png' },
-    'CHERRY': { key: 'CHERRY', path: '/images/cherry.png' },
-    'CROWN': { key: 'CROWN', path: '/images/crown.png' },
-    'DIAMOND': { key: 'DIAMOND', path: '/images/diamond.png' },
-    'FREE_SPIN': { key: 'FREE_SPIN', path: '/images/free_spin.png' },
-    'SCATTER': { key: 'SCATTER', path: '/images/scatter.png' },
-    'SEVEN': { key: 'SEVEN', path: '/images/seven.png' },
-    'WILD': { key: 'WILD', path: '/images/wild.png' }
+    'BAR': '/images/bar.png',
+    'CHERRY': '/images/cherry.png',
+    'CROWN': '/images/crown.png',
+    'DIAMOND': '/images/diamond.png',
+    'FREE_SPIN': '/images/free_spin.png',
+    'SCATTER': '/images/scatter.png',
+    'SEVEN': '/images/seven.png',
+    'WILD': '/images/wild.png'
 };
 
-// --- PRELOAD FUNCTION (USING ASSETS MANAGER FOR RELIABILITY) ---
 function preloadTextures(scene) {
     const assetsManager = new BABYLON.AssetsManager(scene);
-
     for (const key in symbolImageMap) {
-        const data = symbolImageMap[key];
-        
-        const textureTask = assetsManager.addTextureTask(`texture_${key}`, data.path);
-        
-        // When the texture loads, map it to the global loadedTextures object
-        textureTask.onSuccess = function(task) {
-            loadedTextures[key] = task.texture;
-        }
-        
-        textureTask.onError = function(task, message, exception) {
-            console.error(`Failed to load texture for ${key} at ${task.url}: ${message}`, exception);
-        }
+        const path = symbolImageMap[key];
+        const task = assetsManager.addTextureTask(key, path);
+        task.onSuccess = t => loadedTextures[key] = t.texture;
     }
-    
     return new Promise((resolve, reject) => {
-        assetsManager.onFinish = function(tasks) {
-            resolve(loadedTextures);
-        };
-
-        assetsManager.onProgress = function(remainingCount, totalCount) {
-            // Optional: Update a loading bar if needed
-        };
-        
-        assetsManager.onError = function(task, message, exception) {
-            console.error("Asset Manager encountered a critical error.", task, message, exception);
-            reject(message);
-        }
-
+        assetsManager.onFinish = () => resolve(loadedTextures);
         assetsManager.load();
     });
 }
 
-
-// Auth functions (Unchanged)
-async function login() {
-    const username = document.getElementById('loginUsername').value;
-    const password = document.getElementById('loginPassword').value;
-    
-    try {
-        const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            currentUser = data.user;
-            showLobby();
-            loadJackpot();
-        } else {
-            showError(data.error);
-        }
-    } catch (error) {
-        showError('Login failed. Please try again.');
-    }
-}
-
-async function register() {
-    const username = document.getElementById('registerUsername').value;
-    const password = document.getElementById('registerPassword').value;
-    
-    try {
-        const response = await fetch('/api/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            currentUser = data.user;
-            showLobby();
-            loadJackpot();
-        } else {
-            showError(data.error);
-        }
-    } catch (error) {
-        showError('Registration failed. Please try again.');
-    }
-}
-
-async function logout() {
-    await fetch('/api/logout', { method: 'POST' });
-    currentUser = null;
-    location.reload();
-}
-
-function showLogin() {
-    document.getElementById('loginForm').classList.remove('hidden');
-    document.getElementById('registerForm').classList.add('hidden');
-    clearError();
-}
-
-function showRegister() {
-    document.getElementById('loginForm').classList.add('hidden');
-    document.getElementById('registerForm').classList.remove('hidden');
-    clearError();
-}
-
-function showError(message) {
-    const errorEl = document.getElementById('errorMessage');
-    errorEl.textContent = message;
-    errorEl.classList.remove('hidden');
-}
-
-function clearError() {
-    document.getElementById('errorMessage').classList.add('hidden');
-}
-
-function showLobby() {
-    document.getElementById('authContainer').style.display = 'none';
-    document.getElementById('lobbyContainer').style.display = 'block';
-    updateBalance();
-}
-
-function updateBalance() {
-    if (currentUser) {
-        document.getElementById('userBalance').textContent = currentUser.balance.toFixed(2);
-    }
-}
-
-async function loadJackpot() {
-    try {
-        const response = await fetch('/api/jackpot');
-        const data = await response.json();
-        document.getElementById('jackpotAmount').textContent = data.amount.toFixed(2);
-        
-        // Animate jackpot increase
-        setInterval(async () => {
-            const response = await fetch('/api/jackpot');
-            const data = await response.json();
-            animateValue('jackpotAmount', parseFloat(document.getElementById('jackpotAmount').textContent), data.amount, 1000);
-        }, 5000);
-    } catch (error) {
-        console.error('Failed to load jackpot:', error);
-    }
-}
-
-function animateValue(id, start, end, duration) {
-    const element = document.getElementById(id);
-    const range = end - start;
-    const increment = range / (duration / 16);
-    let current = start;
-    
-    const timer = setInterval(() => {
-        current += increment;
-        if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
-            current = end;
-            clearInterval(timer);
-        }
-        element.textContent = current.toFixed(2);
-    }, 16);
-}
-
-// Funds management (Unchanged)
-function showFundsModal() {
-    document.getElementById('fundsModal').classList.add('show');
-    document.getElementById('fundsAmount').value = '';
-    document.getElementById('fundsError').classList.add('hidden');
-}
-
-function closeFundsModal() {
-    document.getElementById('fundsModal').classList.remove('show');
-}
-
-async function addFunds() {
-    const amount = parseFloat(document.getElementById('fundsAmount').value);
-    
-    if (!amount || amount <= 0) {
-        showFundsError('Please enter a valid amount');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/funds/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            currentUser.balance = data.balance;
-            updateBalance();
-            closeFundsModal();
-        } else {
-            showFundsError(data.error);
-        }
-    } catch (error) {
-        showFundsError('Failed to add funds');
-    }
-}
-
-async function withdrawFunds() {
-    const amount = parseFloat(document.getElementById('fundsAmount').value);
-    
-    if (!amount || amount <= 0) {
-        showFundsError('Please enter a valid amount');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/funds/withdraw', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            currentUser.balance = data.balance;
-            updateBalance();
-            closeFundsModal();
-        } else {
-            showFundsError(data.error);
-        }
-    } catch (error) {
-        showFundsError('Failed to withdraw funds');
-    }
-}
-
-function showFundsError(message) {
-    const errorEl = document.getElementById('fundsError');
-    errorEl.textContent = message;
-    errorEl.classList.remove('hidden');
-}
-
-// Game functions (Unchanged)
-function playGame(gameType) {
-    document.getElementById('lobbyContainer').style.display = 'none';
-    document.getElementById('gameContainer').style.display = 'block';
-    
-    if (!gameEngine) {
-        initGame();
-    }
-    
-    updateGameUI();
-}
-
-function backToLobby() {
-    document.getElementById('gameContainer').style.display = 'none';
-    document.getElementById('lobbyContainer').style.display = 'block';
-    
-    // Refresh user data
-    fetch('/api/user')
-        .then(res => res.json())
-        .then(data => {
-            currentUser = data;
-            updateBalance();
-        });
-}
-
-// --- INIT GAME FUNCTION ---
 function initGame() {
     const canvas = document.getElementById('renderCanvas');
-    gameEngine = new BABYLON.Engine(canvas, true);
-    
-    // Create a dummy scene to hold the textures during loading
+    gameEngine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+
     const tempScene = new BABYLON.Scene(gameEngine);
+    preloadTextures(tempScene).then(() => {
+        tempScene.dispose();
+        gameScene = createScene();
+        gameEngine.runRenderLoop(() => gameScene.render());
 
-    // A. Start loading textures using the AssetsManager
-    textureLoadPromise = preloadTextures(tempScene);
-
-    textureLoadPromise.then((loadedAssets) => {
-        // B. Dispose of the temporary scene
-        tempScene.dispose(); 
-        
-        // C. Once textures are ready, create the final scene
-        // We pass the engine, but the loadedAssets are global (loadedTextures)
-        gameScene = createScene(canvas); 
-        
-        // D. Start the render loop
-        gameEngine.runRenderLoop(() => {
-            gameScene.render();
-        });
-        
-        window.addEventListener('resize', () => {
-            gameEngine.resize();
-        });
-
-    }).catch(error => {
-        // E. Handle a critical error if textures fail to load
-        console.error("Critical error: Game assets failed to load.", error);
-        showError("Game assets failed to load. Please refresh and check image paths in console.");
+        window.addEventListener('resize', () => gameEngine.resize());
     });
 }
 
-// --- CREATE SCENE FUNCTION (UPDATED SIGNATURE - NO TEXTURES PASSED, USES GLOBAL) ---
-function createScene(canvas) {
+function createScene() {
     const scene = new BABYLON.Scene(gameEngine);
-    scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
-    
-    const camera = new BABYLON.ArcRotateCamera("camera", 
-        Math.PI / 2, Math.PI / 2.5, 15, 
-        new BABYLON.Vector3(0, 0, 0), scene);
-    camera.attachControl(canvas, true);
-    camera.lowerRadiusLimit = 10;
-    camera.upperRadiusLimit = 20;
-    
-    const light = new BABYLON.HemisphericLight("light", 
-        new BABYLON.Vector3(0, 1, 0), scene);
-    light.intensity = 0.7;
-    
-    const spotLight = new BABYLON.SpotLight("spotLight",
-        new BABYLON.Vector3(0, 10, 0),
-        new BABYLON.Vector3(0, -1, 0),
-        Math.PI / 3, 2, scene);
-    spotLight.intensity = 1.5;
-    
-    createSlotMachine(scene); // Textures are now accessed via the global loadedTextures map
-    createEnvironment(scene);
-    
+    scene.clearColor = new BABYLON.Color4(0.02, 0, 0.05, 1);
+
+    // HDR Environment for realistic reflections
+    const hdr = BABYLON.CubeTexture.CreateFromPrefilteredData("/env/casino.env", scene);
+    scene.environmentTexture = hdr;
+    scene.environmentIntensity = 1.3;
+
+    // Camera
+    const camera = new BABYLON.ArcRotateCamera("cam", Math.PI / 2, Math.PI / 2.8, 18, BABYLON.Vector3.Zero(), scene);
+    camera.lowerRadiusLimit = 12;
+    camera.upperRadiusLimit = 25;
+    camera.attachControl(document.getElementById('renderCanvas'), true);
+
+    // Lights
+    new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene).intensity = 0.6;
+
+    const spot = new BABYLON.SpotLight("spot", new BABYLON.Vector3(0, 15, -10), new BABYLON.Vector3(0, -1, 0.5), Math.PI / 2.5, 10, scene);
+    spot.intensity = 2;
+
+    // Flashing casino lights
+    setInterval(() => {
+        spot.diffuse = new BABYLON.Color3(Math.random(), Math.random() * 0.5, Math.random());
+    }, 800);
+
+    createSlotMachine(scene);
+    createCasinoFloor(scene);
+    createWinParticlesSystem(scene); // Pre-create for performance
+
     return scene;
 }
 
-// --- CREATE SLOT MACHINE FUNCTION (UPDATED SIGNATURE) ---
-function createSlotMachine(scene) {
-    const machineMat = new BABYLON.StandardMaterial("machineMat", scene);
-    machineMat.diffuseColor = new BABYLON.Color3(0.8, 0.1, 0.2);
-    machineMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-    
-    const body = BABYLON.MeshBuilder.CreateBox("body", 
-        {width: 10, height: 8, depth: 3}, scene);
-    body.material = machineMat;
-    body.position.y = 0;
-    
-    const top = BABYLON.MeshBuilder.CreateBox("top", 
-        {width: 10, height: 1, depth: 3}, scene);
-    top.material = machineMat;
-    top.position.y = 4.5;
-    
-    // Performance Hint: Freeze Static Meshes
-    body.freezeWorldMatrix();
-    top.freezeWorldMatrix();
-    
-    const positions = [-3, 0, 3];
-    
-    for (let i = 0; i < 3; i++) {
-        const reelContainer = BABYLON.MeshBuilder.CreateBox(`reelContainer${i}`, 
-            {width: 2.5, height: 6, depth: 0.3}, scene);
-        reelContainer.position = new BABYLON.Vector3(positions[i], 0, 1.6);
-        
-        const reelMat = new BABYLON.StandardMaterial(`reelMat${i}`, scene);
-        reelMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.15);
-        reelMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.1);
-        reelContainer.material = reelMat;
-        reelContainer.freezeWorldMatrix(); 
-        
-        const reel = createReel(scene, i); // No need to pass loadedTextures
-        reel.position = new BABYLON.Vector3(positions[i], 0, 1.8);
-        reelMeshes.push(reel);
-        
-        // The visible yellow frame (payline indicator)
-        const frame = BABYLON.MeshBuilder.CreateBox(`frame${i}`, 
-            {width: 2.8, height: 2.5, depth: 0.1}, scene);
-        frame.position = new BABYLON.Vector3(positions[i], 0, 1.9);
-        const frameMat = new BABYLON.StandardMaterial(`frameMat${i}`, scene);
-        frameMat.diffuseColor = new BABYLON.Color3(1, 0.84, 0); // Yellow
-        frameMat.specularColor = new BABYLON.Color3(1, 1, 1);
-        frame.material = frameMat;
-        frame.freezeWorldMatrix();
-    }
+let particleSystem;
+function createWinParticlesSystem(scene) {
+    particleSystem = new BABYLON.ParticleSystem("coins", 3000, scene);
+    particleSystem.particleTexture = new BABYLON.Texture("/textures/coin.png", scene);
+    particleSystem.minSize = 0.2;
+    particleSystem.maxSize = 0.8;
+    particleSystem.minLifeTime = 1.0;
+    particleSystem.maxLifeTime = 3.0;
+    particleSystem.emitRate = 0; // We'll control manually
+    particleSystem.emitter = new BABYLON.Vector3(0, 2, 2);
+    particleSystem.direction1 = new BABYLON.Vector3(-3, 8, -3);
+    particleSystem.direction2 = new BABYLON.Vector3(3, 8, 3);
+    particleSystem.gravity = new BABYLON.Vector3(0, -15, 0);
+    particleSystem.color1 = new BABYLON.Color4(1, 0.9, 0.2, 1);
+    particleSystem.color2 = new BABYLON.Color4(1, 0.6, 0, 1);
+    particleSystem.minEmitPower = 3;
+    particleSystem.maxEmitPower = 8;
 }
 
-// --- CREATE REEL FUNCTION (USES GLOBAL loadedTextures) ---
-function createReel(scene, index) {
-    const symbolTexts = [];
-    const parent = new BABYLON.TransformNode(`reel${index}`, scene);
-    
-    for (let i = 0; i < 20; i++) {
-        const plane = BABYLON.MeshBuilder.CreatePlane(`symbol${index}_${i}`, 
-            {width: 2, height: 2}, scene);
-        
-        // Z-Position adjustment to ensure symbol plane (z=1.95) renders 
-        // in front of the yellow frame (z=1.9)
-        plane.position = new BABYLON.Vector3(0, i * 2.5 - 25, 0.15); 
-        plane.parent = parent;
-        
-        const mat = new BABYLON.StandardMaterial(`symbolMat${index}_${i}`, scene);
-        
-        // Choose a random symbol key and USE its texture from the pre-loaded map
-        const symbolKey = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
-        const texture = loadedTextures[symbolKey]; // Access the global map
+function triggerWinParticles() {
+    if (!particleSystem) return;
+    particleSystem.emitter = new BABYLON.Vector3(0, 1, 1.8);
+    particleSystem.emitRate = 800;
+    particleSystem.start();
+    setTimeout(() => particleSystem.emitRate = 0, 800);
+}
 
-        // Material settings for Emissive Texture and Visibility
+function createCasinoFloor(scene) {
+    const floor = BABYLON.MeshBuilder.CreateGround("floor", { width: 100, height: 100 }, scene);
+    const mat = new BABYLON.PBRMaterial("floorMat", scene);
+    mat.albedoColor = new BABYLON.Color3(0.05, 0.02, 0.1);
+    mat.metallic = 0.1;
+    mat.roughness = 0.9;
+    floor.material = mat;
+    floor.position.y = -5;
+}
+
+function createSlotMachine(scene) {
+    // Import real 3D model instead of red box
+    BABYLON.SceneLoader.ImportMeshAsync("", "/models/", "slot_machine.glb", scene).then((container) => {
+        const machine = container.meshes[0];
+        machine.scaling = new BABYLON.Vector3(3, 3, 3);
+        machine.position.y = -2.5;
+        machine.rotation.y = Math.PI;
+
+        // Convert all materials to shiny PBR
+        container.meshes.forEach(mesh => {
+            if (mesh.material) {
+                const pbr = new BABYLON.PBRMaterial(mesh.material.name + "_pbr", scene);
+                pbr.albedoColor = mesh.material.diffuseColor || BABYLON.Color3.White();
+                pbr.metallic = 0.95;
+                pbr.roughness = 0.15;
+                mesh.material = pbr;
+            }
+        });
+    });
+
+    const positions = [-3, 0, 3];
+    const glowFrames = [];
+
+    for (let i = 0; i < 3; i++) {
+        const reel = createReel(scene, i);
+        reel.position.x = positions[i];
+        reelMeshes.push(reel);
+
+        // Glowing neon frame
+        const frame = BABYLON.MeshBuilder.CreatePlane(`frame${i}`, { width: 3.2, height: 3.2 }, scene);
+        frame.position = new BABYLON.Vector3(positions[i], 0, 1.9);
+        const mat = new BABYLON.StandardMaterial("frameMat", scene);
+        mat.emissiveColor = new BABYLON.Color3(1, 0.7, 0);
+        mat.diffuseColor = BABYLON.Color3.Black();
+        mat.emissiveFresnelParameters = new BABYLON.FresnelParameters();
+        mat.emissiveFresnelParameters.bias = 0.4;
+        mat.emissiveFresnelParameters.power = 3;
+        mat.emissiveFresnelParameters.leftColor = BABYLON.Color3.Yellow();
+        mat.emissiveFresnelParameters.rightColor = BABYLON.Color3.Red();
+        frame.material = mat;
+        glowFrames.push(frame);
+    }
+
+    // Store for win animation
+    window.glowFrames = glowFrames;
+}
+
+function createReel(scene, index) {
+    const parent = new BABYLON.TransformNode(`reel${index}`, scene);
+    const symbols = [];
+
+    for (let i = 0; i < 20; i++) {
+        const plane = BABYLON.MeshBuilder.CreatePlane(`sym${index}_${i}`, { width: 2.2, height: 2.2 }, scene);
+        plane.position.y = i * 2.5 - 25;
+        plane.position.z = 0.05;
+        plane.parent = parent;
+
+        const mat = new BABYLON.StandardMaterial(`mat${index}_${i}`, scene);
         mat.backFaceCulling = false;
-        mat.hasAlpha = true;         
-        
-        // Set emissive texture and color only if the texture is found and verified ready
-        if (texture && texture.isReady()) {
-            mat.emissiveTexture = texture; 
-            mat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Full white emission to display the image color
+
+        const key = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
+        const tex = loadedTextures[key];
+        if (tex && tex.isReady()) {
+            mat.emissiveTexture = tex;
+            mat.emissiveColor = new BABYLON.Color3(1.4, 1.4, 1.4); // Overbright!
+            mat.opacityTexture = tex;
+            mat.useAlphaFromDiffuseTexture = true;
         } else {
-            // Fallback to dark gray background if texture failed or wasn't ready
-            mat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.05); 
+            mat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.4);
         }
 
-        // Ensure ALL lighting properties are black to prevent scene light interference
-        mat.diffuseColor = new BABYLON.Color3(0, 0, 0); 
-        mat.specularColor = new BABYLON.Color3(0, 0, 0); 
-        mat.ambientColor = new BABYLON.Color3(0, 0, 0); 
-        
+        // Disable all lighting
+        mat.diffuseColor = BABYLON.Color3.Black();
+        mat.specularColor = BABYLON.Color3.Black();
+
+        // Glow border
+        const glow = BABYLON.MeshBuilder.CreatePlane("glow", { width: 2.4, height: 2.4 }, scene);
+        glow.position.z = -0.02;
+        glow.parent = plane;
+        const glowMat = new BABYLON.StandardMaterial("glow", scene);
+        glowMat.emissiveColor = new BABYLON.Color3(1, 0.8, 0.3);
+        glowMat.alpha = 0.7;
+        glow.material = glowMat;
+
         plane.material = mat;
-        
-        symbolTexts.push({plane, symbol: symbolKey, texture});
+        symbols.push({ plane, symbol: key });
     }
-    
-    reels[index] = symbolTexts;
+
+    reels[index] = symbols;
     return parent;
 }
 
-function createEnvironment(scene) {
-    const groundMat = new BABYLON.StandardMaterial("groundMat", scene);
-    groundMat.diffuseColor = new BABYLON.Color3(0.1, 0.05, 0.15);
-    groundMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
-    
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", 
-        {width: 50, height: 50}, scene);
-    ground.material = groundMat;
-    ground.position.y = -4;
-    ground.freezeWorldMatrix();
-}
+// Enhanced win animation
+function celebrateWin() {
+    triggerWinParticles();
 
-function updateGameUI() {
-    document.getElementById('gameBalance').textContent = currentUser.balance.toFixed(2);
-    document.getElementById('gameBet').textContent = currentBet.toFixed(2);
-    document.getElementById('betDisplay').textContent = currentBet.toFixed(2);
-    
-    fetch('/api/jackpot')
-        .then(res => res.json())
-        .then(data => {
-            document.getElementById('gameJackpot').textContent = data.amount.toFixed(2);
-        });
-}
-
-function changeBet(amount) {
-    currentBet = Math.max(5, Math.min(currentUser.balance, currentBet + amount));
-    document.getElementById('gameBet').textContent = currentBet.toFixed(2);
-    document.getElementById('betDisplay').textContent = currentBet.toFixed(2);
-}
-
-async function spin() {
-    if (isSpinning || currentUser.balance < currentBet) {
-        if (currentUser.balance < currentBet) {
-            showResult('Insufficient funds!');
-        }
-        return;
-    }
-    
-    isSpinning = true;
-    document.getElementById('spinButton').disabled = true;
-    hideResult();
-    
-    const spinPromises = reelMeshes.map((reel, i) => {
-        return spinReel(reel, i);
-    });
-    
-    await Promise.all(spinPromises);
-    
-    const visibleSymbols = reelMeshes.map(reel => {
-        // Calculate the symbol index that landed on the payline (center of the view)
-        let rawIndex = -reel.position.y / 2.5;
-        let index = Math.round(rawIndex) % 20;
-        if (index < 0) index += 20; 
-        return reels[reelMeshes.indexOf(reel)][index].symbol;
-    });
-    
-    await submitGameResult(visibleSymbols);
-    
-    isSpinning = false;
-    document.getElementById('spinButton').disabled = false;
-}
-
-// --- SPIN REEL FUNCTION (FIXED DISPOSE ERROR) ---
-function spinReel(reel, index) {
-    return new Promise((resolve) => {
-        const animationName = `reelSpinAnim${index}`;
-        const duration = 2000 + index * 500; // Staggered stop time
-        const startY = reel.position.y;
-        
-        // Total distance to cover during the animation
-        const reelHeight = 20 * 2.5; 
-        const cycles = 4; 
-        
-        // Find the precise stopping position for a random symbol
-        const finalSymbolIndex = Math.floor(Math.random() * 20); 
-        const targetY = -finalSymbolIndex * 2.5; // Final Y position for the winning symbol
-
-        // Calculate the required final position to land perfectly after the full cycles
-        const finalPositionTarget = startY - (cycles * reelHeight) + (startY % reelHeight) + targetY;
-        
-        // Use Babylon.js Easing for Realistic Stop
-        const reelAnimation = new BABYLON.Animation(
-            animationName, 
-            "position.y", 
-            60, // frames per second
-            BABYLON.Animation.ANIMATIONTYPE_FLOAT,
-            BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-        );
-
-        const keys = [
-            { frame: 0, value: startY },
-            { frame: 100, value: finalPositionTarget }
-        ];
-
-        reelAnimation.setKeys(keys);
-
-        // Cubic Ease Out provides a smooth deceleration
-        const easing = new BABYLON.CubicEase();
-        easing.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEOUT);
-        reelAnimation.setEasingFunction(easing);
-
-        // Start the animation and get the Animatable object
-        const animatable = gameScene.beginDirectAnimation(reel, [reelAnimation], 0, 100, false, duration / 100, () => {
-            
-            reel.position.y = targetY; // Ensure snap to the *exact* final position
-            
-            // FIX: Stop the animation before disposing to prevent "dispose is not a function" error
-            animatable.stop(); 
-            // animatable.dispose(); // Often redundant after stop(), removed to be safer
-            
-            resolve();
-        });
+    // Pulse frames
+    window.glowFrames?.forEach(frame => {
+        const anim = BABYLON.Animation.CreateAndStartAnimation("pulse", frame.scaling, "x", 60, 60,
+            1, 1.3, BABYLON.Animation.ANIMATIONLOOPMODE_RELATIVE, new BABYLON.BounceEase());
+        BABYLON.Animation.CreateAndStartAnimation("pulseY", frame.scaling, "y", 60, 60,
+            1, 1.3, BABYLON.Animation.ANIMATIONLOOPMODE_RELATIVE, new BABYLON.BounceEase());
     });
 }
 
-async function submitGameResult(symbols) {
-    let winAmount = 0;
-    
-    // The switch statement now uses your string symbol keys
-    if (symbols[0] === symbols[1] && symbols[1] === symbols[2]) {
-        const symbol = symbols[0];
-        switch(symbol) {
-            case 'DIAMOND': winAmount = currentBet * 100; break;
-            case 'SEVEN': winAmount = currentBet * 50; break;
-            case 'CROWN': winAmount = currentBet * 25; break;
-            case 'BAR': winAmount = currentBet * 15; break;
-            case 'WILD': winAmount = currentBet * 10; break;
-            case 'CHERRY': winAmount = currentBet * 8; break;
-            case 'SCATTER': winAmount = currentBet * 5; break;
-            default: winAmount = currentBet * 2; break; 
-        }
-        showResult(`🎉 JACKPOT! +$${winAmount.toFixed(2)} 🎉`);
-    } else if (symbols[0] === symbols[1] || symbols[1] === symbols[2]) {
-        winAmount = currentBet * 2;
-        showResult(`✨ WIN! +$${winAmount.toFixed(2)} ✨`);
-    }
-    
-    try {
-        const response = await fetch('/api/game/result', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                betAmount: currentBet,
-                winAmount: winAmount,
-                symbols: symbols,
-                gameType: 'slots'
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            currentUser.balance = data.balance;
-            updateGameUI();
-            document.getElementById('gameWin').textContent = winAmount.toFixed(2);
-            
-            if (data.jackpot) {
-                animateValue('gameJackpot', parseFloat(document.getElementById('gameJackpot').textContent), data.jackpot, 500);
-            }
-        }
-    } catch (error) {
-        console.error('Failed to submit game result:', error);
-    }
+// In submitGameResult(), after win:
+if (winAmount > 0) {
+    showResult(`JACKPOT! +$${winAmount.toFixed(2)}`);
+    celebrateWin();
 }
-
-function showResult(message) {
-    const resultEl = document.getElementById('resultOverlay');
-    resultEl.textContent = message;
-    resultEl.classList.add('show');
-    
-    setTimeout(() => {
-        hideResult();
-    }, 3000);
-}
-
-function hideResult() {
-    document.getElementById('resultOverlay').classList.remove('show');
-}
-
-// Enter key handlers (Unchanged)
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('loginPassword').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') login();
-    });
-    
-    document.getElementById('registerPassword').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') register();
-    });
-});
