@@ -7,17 +7,7 @@ let currentBet = 10;
 let reels = [];
 let reelMeshes = [];
 
-// Updated symbols with image paths
-const symbols = [
-    { name: 'cherry', path: '/images/cherry.png', multiplier: 5 },
-    { name: 'bar', path: '/images/bar.png', multiplier: 8 },
-    { name: 'crown', path: '/images/crown.png', multiplier: 15 },
-    { name: 'seven', path: '/images/seven.png', multiplier: 50 },
-    { name: 'diamond', path: '/images/diamond.png', multiplier: 100 },
-    { name: 'wild', path: '/images/wild.png', multiplier: 25 },
-    { name: 'scatter', path: '/images/scatter.png', multiplier: 20 },
-    { name: 'free_spin', path: '/images/free_spin.png', multiplier: 30 }
-];
+const symbols = ['🍒', '🍋', '🍊', '🍇', '⭐', '💎', '7️⃣'];
 
 // Auth functions
 async function login() {
@@ -116,6 +106,7 @@ async function loadJackpot() {
         const data = await response.json();
         document.getElementById('jackpotAmount').textContent = data.amount.toFixed(2);
         
+        // Animate jackpot increase
         setInterval(async () => {
             const response = await fetch('/api/jackpot');
             const data = await response.json();
@@ -233,6 +224,7 @@ function backToLobby() {
     document.getElementById('gameContainer').style.display = 'none';
     document.getElementById('lobbyContainer').style.display = 'block';
     
+    // Refresh user data
     fetch('/api/user')
         .then(res => res.json())
         .then(data => {
@@ -242,15 +234,9 @@ function backToLobby() {
 }
 
 function initGame() {
-    if (typeof BABYLON === 'undefined') {
-        console.log('Waiting for Babylon.js to load...');
-        setTimeout(initGame, 100);
-        return;
-    }
-    
     const canvas = document.getElementById('renderCanvas');
     gameEngine = new BABYLON.Engine(canvas, true);
-    gameScene = createScene();
+    gameScene = createScene(canvas); // Pass canvas to createScene
     
     gameEngine.runRenderLoop(() => {
         gameScene.render();
@@ -261,7 +247,7 @@ function initGame() {
     });
 }
 
-function createScene() {
+function createScene(canvas) {
     const scene = new BABYLON.Scene(gameEngine);
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     
@@ -274,17 +260,13 @@ function createScene() {
     
     const light = new BABYLON.HemisphericLight("light", 
         new BABYLON.Vector3(0, 1, 0), scene);
-    light.intensity = 0.8;
+    light.intensity = 0.7;
     
     const spotLight = new BABYLON.SpotLight("spotLight",
         new BABYLON.Vector3(0, 10, 0),
         new BABYLON.Vector3(0, -1, 0),
         Math.PI / 3, 2, scene);
-    spotLight.intensity = 2;
-    
-    const dirLight = new BABYLON.DirectionalLight("dirLight",
-        new BABYLON.Vector3(0, -1, 1), scene);
-    dirLight.intensity = 0.5;
+    spotLight.intensity = 1.5;
     
     createSlotMachine(scene);
     createEnvironment(scene);
@@ -296,7 +278,6 @@ function createSlotMachine(scene) {
     const machineMat = new BABYLON.StandardMaterial("machineMat", scene);
     machineMat.diffuseColor = new BABYLON.Color3(0.8, 0.1, 0.2);
     machineMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-    machineMat.emissiveColor = new BABYLON.Color3(0.1, 0.01, 0.02);
     
     const body = BABYLON.MeshBuilder.CreateBox("body", 
         {width: 10, height: 8, depth: 3}, scene);
@@ -308,6 +289,10 @@ function createSlotMachine(scene) {
     top.material = machineMat;
     top.position.y = 4.5;
     
+    // --- Performance Hint: Freeze Static Meshes ---
+    body.freezeWorldMatrix();
+    top.freezeWorldMatrix();
+    
     const positions = [-3, 0, 3];
     
     for (let i = 0; i < 3; i++) {
@@ -316,9 +301,10 @@ function createSlotMachine(scene) {
         reelContainer.position = new BABYLON.Vector3(positions[i], 0, 1.6);
         
         const reelMat = new BABYLON.StandardMaterial(`reelMat${i}`, scene);
-        reelMat.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.1);
-        reelMat.emissiveColor = new BABYLON.Color3(0.02, 0.02, 0.05);
+        reelMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.15);
+        reelMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.1);
         reelContainer.material = reelMat;
+        reelContainer.freezeWorldMatrix(); // It's static, so freeze it
         
         const reel = createReel(scene, i);
         reel.position = new BABYLON.Vector3(positions[i], 0, 1.8);
@@ -329,44 +315,59 @@ function createSlotMachine(scene) {
         frame.position = new BABYLON.Vector3(positions[i], 0, 1.9);
         const frameMat = new BABYLON.StandardMaterial(`frameMat${i}`, scene);
         frameMat.diffuseColor = new BABYLON.Color3(1, 0.84, 0);
-        frameMat.specularColor = new BABYLON.Color3(1, 1, 0.5);
-        frameMat.emissiveColor = new BABYLON.Color3(0.3, 0.25, 0);
+        frameMat.specularColor = new BABYLON.Color3(1, 1, 1);
         frame.material = frameMat;
-        
-        const light1 = new BABYLON.PointLight(`reelLight${i}`, 
-            new BABYLON.Vector3(positions[i], 2, 2), scene);
-        light1.diffuse = new BABYLON.Color3(1, 0.84, 0);
-        light1.intensity = 0.5;
+        frame.freezeWorldMatrix(); // It's static, so freeze it
     }
 }
 
 function createReel(scene, index) {
-    const symbolMeshes = [];
+    const symbolTexts = [];
     const parent = new BABYLON.TransformNode(`reel${index}`, scene);
     
     for (let i = 0; i < 20; i++) {
         const plane = BABYLON.MeshBuilder.CreatePlane(`symbol${index}_${i}`, 
-            {width: 2.2, height: 2.2}, scene);
-        plane.position.y = i * 2.5 - 25;
+            {width: 2, height: 2}, scene);
+        
+        // Offset the planes slightly forward so they are visible in front of the reel container
+        plane.position = new BABYLON.Vector3(0, i * 2.5 - 25, 0.05); 
         plane.parent = parent;
         
         const mat = new BABYLON.StandardMaterial(`symbolMat${index}_${i}`, scene);
+        const texture = new BABYLON.DynamicTexture(`symbolTex${index}_${i}`, 
+            {width: 256, height: 256}, scene, true); // true for bilinear filtering
+        
+        const ctx = texture.getContext();
+        
+        // --- FIX: Draw the symbol onto the texture ---
+        // 1. Clear the background to transparent (or black)
+        ctx.fillStyle = "black";
+        ctx.fillRect(0, 0, 256, 256);
         
         const symbol = symbols[Math.floor(Math.random() * symbols.length)];
         
-        const texture = new BABYLON.Texture(symbol.path, scene, false, true);
-        texture.hasAlpha = true;
-        mat.diffuseTexture = texture;
-        mat.specularColor = new BABYLON.Color3(0, 0, 0);
-        mat.emissiveColor = new BABYLON.Color3(0.4, 0.4, 0.4);
-        mat.backFaceCulling = false;
+        // 2. Draw the text (Emojis)
+        ctx.font = "bold 180px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "white"; // Draw the emoji on the black background
+        ctx.fillText(symbol, 128, 128);
+        
+        texture.update();
+        
+        // --- UPGRADE FIX: Use Emissive Texture for Brightness ---
+        // This makes the symbols glow and ignore shadows/lighting, ensuring they are seen.
+        mat.emissiveTexture = texture; 
+        mat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Full white emission
+        mat.specularColor = new BABYLON.Color3(0, 0, 0); // Remove highlights
+        mat.diffuseColor = new BABYLON.Color3(0, 0, 0); // Set diffuse to black (already handled by texture background)
         
         plane.material = mat;
         
-        symbolMeshes.push({plane, symbol, texture});
+        symbolTexts.push({plane, symbol, texture});
     }
     
-    reels[index] = symbolMeshes;
+    reels[index] = symbolTexts;
     return parent;
 }
 
@@ -379,30 +380,7 @@ function createEnvironment(scene) {
         {width: 50, height: 50}, scene);
     ground.material = groundMat;
     ground.position.y = -4;
-    
-    const particleSystem = new BABYLON.ParticleSystem("particles", 200, scene);
-    particleSystem.particleTexture = new BABYLON.Texture("https://www.babylonjs-playground.com/textures/flare.png", scene);
-    particleSystem.emitter = new BABYLON.Vector3(0, 5, 0);
-    particleSystem.minEmitBox = new BABYLON.Vector3(-10, 0, -5);
-    particleSystem.maxEmitBox = new BABYLON.Vector3(10, 0, 5);
-    particleSystem.color1 = new BABYLON.Color4(1, 0.84, 0, 0.3);
-    particleSystem.color2 = new BABYLON.Color4(1, 0, 0.4, 0.3);
-    particleSystem.colorDead = new BABYLON.Color4(0, 0, 0, 0);
-    particleSystem.minSize = 0.05;
-    particleSystem.maxSize = 0.15;
-    particleSystem.minLifeTime = 2;
-    particleSystem.maxLifeTime = 4;
-    particleSystem.emitRate = 50;
-    particleSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_ADD;
-    particleSystem.gravity = new BABYLON.Vector3(0, 1, 0);
-    particleSystem.direction1 = new BABYLON.Vector3(-0.5, 1, -0.5);
-    particleSystem.direction2 = new BABYLON.Vector3(0.5, 1, 0.5);
-    particleSystem.minAngularSpeed = 0;
-    particleSystem.maxAngularSpeed = Math.PI;
-    particleSystem.minEmitPower = 0.5;
-    particleSystem.maxEmitPower = 1;
-    particleSystem.updateSpeed = 0.01;
-    particleSystem.start();
+    ground.freezeWorldMatrix();
 }
 
 function updateGameUI() {
@@ -441,10 +419,13 @@ async function spin() {
     
     await Promise.all(spinPromises);
     
-    const visibleSymbols = reelMeshes.map((reel, idx) => {
-        const index = Math.round(-reel.position.y / 2.5) % 20;
-        const positiveIndex = ((index % 20) + 20) % 20;
-        return reels[idx][positiveIndex].symbol;
+    const visibleSymbols = reelMeshes.map(reel => {
+        // Calculate the symbol index that landed on the payline (center of the view)
+        // Since the payline is at y=0, we find the symbol closest to that position.
+        let rawIndex = -reel.position.y / 2.5;
+        let index = Math.round(rawIndex) % 20;
+        if (index < 0) index += 20; // Handle negative result from modulo
+        return reels[reelMeshes.indexOf(reel)][index].symbol;
     });
     
     await submitGameResult(visibleSymbols);
@@ -455,55 +436,75 @@ async function spin() {
 
 function spinReel(reel, index) {
     return new Promise((resolve) => {
-        const duration = 2000 + index * 500;
-        const rotations = 5 + index;
+        // Use Babylon's scene animation for smoother control and easing (UPGRADE)
+        const animationName = `reelSpinAnim${index}`;
+        const duration = 2000 + index * 500; // Staggered stop time
+        const rotations = 5 + index * 2; // Spin distance for visual effect (more spins)
         const startY = reel.position.y;
+        
+        // Total distance to cover during the animation
         const distance = rotations * 2.5 * 20;
         
-        const startTime = Date.now();
+        // Find the precise stopping position for a random symbol
+        const finalSymbolIndex = Math.floor(Math.random() * 20); 
+        const finalY = -finalSymbolIndex * 2.5;
         
-        function animate() {
-            const elapsed = Date.now() - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            const eased = 1 - Math.pow(1 - progress, 3);
-            reel.position.y = startY - (distance * eased);
-            
-            if (progress < 1) {
-                requestAnimationFrame(animate);
-            } else {
-                const finalSymbolIndex = Math.floor(Math.random() * 20);
-                reel.position.y = -finalSymbolIndex * 2.5;
-                resolve();
-            }
-        }
+        // Calculate the required animation distance to land precisely on finalY
+        // We need a distance that is (Multiple of a full reel height) + (offset to finalY)
+        const cycles = 4; // Ensure the reel spins at least 4 full cycles
+        const finalPositionTarget = startY - (cycles * 20 * 2.5) + (startY % (20 * 2.5)) + finalY;
         
-        animate();
+        // --- UPGRADE: Use Babylon.js Easing for Realistic Stop ---
+        const reelAnimation = new BABYLON.Animation(
+            animationName, 
+            "position.y", 
+            60, // frames per second
+            BABYLON.Animation.ANIMATIONTYPE_FLOAT,
+            BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+        );
+
+        const keys = [
+            { frame: 0, value: startY },
+            { frame: 100, value: finalPositionTarget }
+        ];
+
+        reelAnimation.setKeys(keys);
+
+        // Cubic Ease Out provides a smooth deceleration
+        const easing = new BABYLON.CubicEase();
+        easing.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEOUT);
+        reelAnimation.setEasingFunction(easing);
+
+        // Start the animation
+        gameScene.beginDirectAnimation(reel, [reelAnimation], 0, 100, false, 1, () => {
+            // Once the animation is done, clean up and resolve the promise
+            reel.position.y = finalY; // Snap to the calculated final position
+            reelAnimation.dispose(); // Clean up the animation object
+            resolve();
+        });
+        
+        // --- Original requestAnimationFrame logic removed in favor of Babylon.js Animation ---
     });
 }
 
-async function submitGameResult(symbolObjs) {
+async function submitGameResult(symbols) {
     let winAmount = 0;
     
-    if (!symbolObjs || symbolObjs.length !== 3 || !symbolObjs[0]) {
-        console.error('Invalid symbols:', symbolObjs);
-        isSpinning = false;
-        document.getElementById('spinButton').disabled = false;
-        return;
-    }
-    
-    const symbolNames = symbolObjs.map(s => s.name);
-    
-    if (symbolObjs[0].name === symbolObjs[1].name && symbolObjs[1].name === symbolObjs[2].name) {
-        winAmount = currentBet * symbolObjs[0].multiplier;
-        showResult(`🎉 JACKPOT! ${symbolObjs[0].name.toUpperCase()}! +$${winAmount.toFixed(2)} 🎉`);
-    } 
-    else if (symbolObjs[0].name === symbolObjs[1].name || symbolObjs[1].name === symbolObjs[2].name) {
+    if (symbols[0] === symbols[1] && symbols[1] === symbols[2]) {
+        const symbol = symbols[0];
+        switch(symbol) {
+            case '💎': winAmount = currentBet * 100; break;
+            case '7️⃣': winAmount = currentBet * 50; break;
+            case '⭐': winAmount = currentBet * 25; break;
+            case '🍇': winAmount = currentBet * 15; break;
+            case '🍊': winAmount = currentBet * 10; break;
+            case '🍋': winAmount = currentBet * 8; break;
+            case '🍒': winAmount = currentBet * 5; break;
+        }
+        showResult(`🎉 JACKPOT! +$${winAmount.toFixed(2)} 🎉`);
+    } else if (symbols[0] === symbols[1] || symbols[1] === symbols[2]) {
         winAmount = currentBet * 2;
         showResult(`✨ WIN! +$${winAmount.toFixed(2)} ✨`);
-    }
-    else if (symbolObjs.some(s => s.name === 'wild')) {
-        winAmount = currentBet * 3;
-        showResult(`🎰 WILD! +$${winAmount.toFixed(2)} 🎰`);
     }
     
     try {
@@ -513,7 +514,7 @@ async function submitGameResult(symbolObjs) {
             body: JSON.stringify({
                 betAmount: currentBet,
                 winAmount: winAmount,
-                symbols: symbolNames,
+                symbols: symbols,
                 gameType: 'slots'
             })
         });
@@ -548,6 +549,7 @@ function hideResult() {
     document.getElementById('resultOverlay').classList.remove('show');
 }
 
+// Enter key handlers
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('loginPassword').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') login();
