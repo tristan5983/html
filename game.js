@@ -236,7 +236,7 @@ function backToLobby() {
 function initGame() {
     const canvas = document.getElementById('renderCanvas');
     gameEngine = new BABYLON.Engine(canvas, true);
-    gameScene = createScene(canvas); // Pass canvas to createScene
+    gameScene = createScene(canvas); 
     
     gameEngine.runRenderLoop(() => {
         gameScene.render();
@@ -271,6 +271,9 @@ function createScene(canvas) {
     createSlotMachine(scene);
     createEnvironment(scene);
     
+    // Optional: Enable the inspector for debugging (uncomment if needed)
+    // scene.debugLayer.show();
+    
     return scene;
 }
 
@@ -289,7 +292,7 @@ function createSlotMachine(scene) {
     top.material = machineMat;
     top.position.y = 4.5;
     
-    // --- Performance Hint: Freeze Static Meshes ---
+    // Performance Hint: Freeze Static Meshes
     body.freezeWorldMatrix();
     top.freezeWorldMatrix();
     
@@ -304,20 +307,21 @@ function createSlotMachine(scene) {
         reelMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.15);
         reelMat.emissiveColor = new BABYLON.Color3(0.05, 0.05, 0.1);
         reelContainer.material = reelMat;
-        reelContainer.freezeWorldMatrix(); // It's static, so freeze it
+        reelContainer.freezeWorldMatrix(); 
         
         const reel = createReel(scene, i);
         reel.position = new BABYLON.Vector3(positions[i], 0, 1.8);
         reelMeshes.push(reel);
         
+        // The visible yellow frame (payline indicator)
         const frame = BABYLON.MeshBuilder.CreateBox(`frame${i}`, 
             {width: 2.8, height: 2.5, depth: 0.1}, scene);
         frame.position = new BABYLON.Vector3(positions[i], 0, 1.9);
         const frameMat = new BABYLON.StandardMaterial(`frameMat${i}`, scene);
-        frameMat.diffuseColor = new BABYLON.Color3(1, 0.84, 0);
+        frameMat.diffuseColor = new BABYLON.Color3(1, 0.84, 0); // Yellow
         frameMat.specularColor = new BABYLON.Color3(1, 1, 1);
         frame.material = frameMat;
-        frame.freezeWorldMatrix(); // It's static, so freeze it
+        frame.freezeWorldMatrix();
     }
 }
 
@@ -329,38 +333,41 @@ function createReel(scene, index) {
         const plane = BABYLON.MeshBuilder.CreatePlane(`symbol${index}_${i}`, 
             {width: 2, height: 2}, scene);
         
-        // Offset the planes slightly forward so they are visible in front of the reel container
-        plane.position = new BABYLON.Vector3(0, i * 2.5 - 25, 0.05); 
+        // *** FIX 1: Z-Position adjustment to ensure symbol plane (z=1.95) renders 
+        // in front of the yellow frame (z=1.9) ***
+        plane.position = new BABYLON.Vector3(0, i * 2.5 - 25, 0.15); 
         plane.parent = parent;
         
         const mat = new BABYLON.StandardMaterial(`symbolMat${index}_${i}`, scene);
         const texture = new BABYLON.DynamicTexture(`symbolTex${index}_${i}`, 
-            {width: 256, height: 256}, scene, true); // true for bilinear filtering
+            {width: 256, height: 256}, scene, true);
         
         const ctx = texture.getContext();
         
-        // --- FIX: Draw the symbol onto the texture ---
-        // 1. Clear the background to transparent (or black)
+        // Draw the symbol onto the texture
         ctx.fillStyle = "black";
         ctx.fillRect(0, 0, 256, 256);
         
         const symbol = symbols[Math.floor(Math.random() * symbols.length)];
         
-        // 2. Draw the text (Emojis)
+        // Draw the text (Emojis)
         ctx.font = "bold 180px Arial";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillStyle = "white"; // Draw the emoji on the black background
+        ctx.fillStyle = "white"; // Draw the white text on black background
         ctx.fillText(symbol, 128, 128);
         
         texture.update();
         
-        // --- UPGRADE FIX: Use Emissive Texture for Brightness ---
-        // This makes the symbols glow and ignore shadows/lighting, ensuring they are seen.
+        // *** FIX 2: Material settings for Emissive Texture and Visibility ***
+        mat.backFaceCulling = false; // Render both sides
+        mat.hasAlpha = true;         // Enables transparency blending
+        
+        // Use the texture as the EMISSIVE map for brightness and visibility
         mat.emissiveTexture = texture; 
         mat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Full white emission
-        mat.specularColor = new BABYLON.Color3(0, 0, 0); // Remove highlights
-        mat.diffuseColor = new BABYLON.Color3(0, 0, 0); // Set diffuse to black (already handled by texture background)
+        mat.diffuseColor = new BABYLON.Color3(0, 0, 0); 
+        mat.specularColor = new BABYLON.Color3(0, 0, 0);
         
         plane.material = mat;
         
@@ -421,10 +428,9 @@ async function spin() {
     
     const visibleSymbols = reelMeshes.map(reel => {
         // Calculate the symbol index that landed on the payline (center of the view)
-        // Since the payline is at y=0, we find the symbol closest to that position.
         let rawIndex = -reel.position.y / 2.5;
         let index = Math.round(rawIndex) % 20;
-        if (index < 0) index += 20; // Handle negative result from modulo
+        if (index < 0) index += 20; 
         return reels[reelMeshes.indexOf(reel)][index].symbol;
     });
     
@@ -436,23 +442,21 @@ async function spin() {
 
 function spinReel(reel, index) {
     return new Promise((resolve) => {
-        // Use Babylon's scene animation for smoother control and easing (UPGRADE)
         const animationName = `reelSpinAnim${index}`;
         const duration = 2000 + index * 500; // Staggered stop time
-        const rotations = 5 + index * 2; // Spin distance for visual effect (more spins)
+        const rotations = 5 + index * 2;
         const startY = reel.position.y;
         
         // Total distance to cover during the animation
-        const distance = rotations * 2.5 * 20;
+        const reelHeight = 20 * 2.5; 
+        const cycles = 4; 
         
         // Find the precise stopping position for a random symbol
         const finalSymbolIndex = Math.floor(Math.random() * 20); 
-        const finalY = -finalSymbolIndex * 2.5;
-        
-        // Calculate the required animation distance to land precisely on finalY
-        // We need a distance that is (Multiple of a full reel height) + (offset to finalY)
-        const cycles = 4; // Ensure the reel spins at least 4 full cycles
-        const finalPositionTarget = startY - (cycles * 20 * 2.5) + (startY % (20 * 2.5)) + finalY;
+        const targetY = -finalSymbolIndex * 2.5;
+
+        // Calculate the required final position to land perfectly after the full cycles
+        const finalPositionTarget = startY - (cycles * reelHeight) + (startY % reelHeight) + targetY;
         
         // --- UPGRADE: Use Babylon.js Easing for Realistic Stop ---
         const reelAnimation = new BABYLON.Animation(
@@ -476,14 +480,16 @@ function spinReel(reel, index) {
         reelAnimation.setEasingFunction(easing);
 
         // Start the animation
-        gameScene.beginDirectAnimation(reel, [reelAnimation], 0, 100, false, 1, () => {
+        // We set the speedRatio to spread the 100 frames across the total duration
+        gameScene.beginDirectAnimation(reel, [reelAnimation], 0, 100, false, duration / 100, () => {
             // Once the animation is done, clean up and resolve the promise
-            reel.position.y = finalY; // Snap to the calculated final position
-            reelAnimation.dispose(); // Clean up the animation object
+            
+            reel.position.y = targetY; // Snap to the calculated final position
+            
+            // *** FIX FOR: TypeError: reelAnimation.dispose is not a function ***
+            // The local reelAnimation object does not need to be disposed.
             resolve();
         });
-        
-        // --- Original requestAnimationFrame logic removed in favor of Babylon.js Animation ---
     });
 }
 
