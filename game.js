@@ -9,6 +9,7 @@ let reelMeshes = [];
 
 // Global variable to hold the promise of loaded textures
 let textureLoadPromise = null;
+let loadedTextures = {}; // Now a global to store assets manager results
 
 // *** Symbols now map to actual file names ***
 const symbolKeys = ['BAR', 'CHERRY', 'CROWN', 'DIAMOND', 'FREE_SPIN', 'SCATTER', 'SEVEN', 'WILD'];
@@ -23,58 +24,45 @@ const symbolImageMap = {
     'WILD': { key: 'WILD', path: '/images/wild.png' }
 };
 
-// --- PRELOAD FUNCTION (FIXED ERROR) ---
+// --- PRELOAD FUNCTION (USING ASSETS MANAGER FOR RELIABILITY) ---
 function preloadTextures(scene) {
-    const texturePromises = [];
-    const loadedTextures = {};
+    const assetsManager = new BABYLON.AssetsManager(scene);
 
     for (const key in symbolImageMap) {
         const data = symbolImageMap[key];
         
-        // Create the texture
-        const texture = new BABYLON.Texture(data.path, scene, 
-            false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+        const textureTask = assetsManager.addTextureTask(`texture_${key}`, data.path);
         
-        loadedTextures[key] = texture;
+        // When the texture loads, map it to the global loadedTextures object
+        textureTask.onSuccess = function(task) {
+            loadedTextures[key] = task.texture;
+        }
         
-        // Push the promise that resolves when the texture is ready
-        texturePromises.push(new Promise((resolve, reject) => {
-            
-            // CRITICAL FIX: Ensure the texture object is valid and has the observables
-            if (texture && texture.onLoadObservable && texture.onErrorObservable) {
-                texture.onLoadObservable.add(() => resolve());
-                texture.onErrorObservable.add((error) => {
-                    console.error(`Failed to load texture: ${data.path}`, error);
-                    reject(error);
-                });
-            } else if (texture) {
-                // Fallback for immediate synchronous loading (if it happened to be cached)
-                if (texture.isReady()) {
-                    resolve();
-                } else {
-                    // Log a warning and resolve to prevent blocking, but this texture might fail visually later
-                    console.warn(`Texture for ${key} was created but is not ready and missing observables.`);
-                    resolve(); 
-                }
-            } else {
-                // If the texture object is undefined (e.g., path error caused synchronous failure)
-                reject(`Texture object is undefined for key: ${key} at path: ${data.path}`);
-            }
-        }));
+        textureTask.onError = function(task, message, exception) {
+            console.error(`Failed to load texture for ${key} at ${task.url}: ${message}`, exception);
+        }
     }
     
-    // Return the promise that waits for ALL textures
-    return Promise.all(texturePromises)
-        .then(() => loadedTextures)
-        .catch(error => {
-            console.error("One or more textures failed to preload, but the process continues:", error);
-            // We re-throw the error to be caught in initGame, which then shows an error message.
-            throw error; 
-        });
+    return new Promise((resolve, reject) => {
+        assetsManager.onFinish = function(tasks) {
+            resolve(loadedTextures);
+        };
+
+        assetsManager.onProgress = function(remainingCount, totalCount) {
+            // Optional: Update a loading bar if needed
+        };
+        
+        assetsManager.onError = function(task, message, exception) {
+            console.error("Asset Manager encountered a critical error.", task, message, exception);
+            reject(message);
+        }
+
+        assetsManager.load();
+    });
 }
 
 
-// Auth functions
+// Auth functions (Unchanged)
 async function login() {
     const username = document.getElementById('loginUsername').value;
     const password = document.getElementById('loginPassword').value;
@@ -198,7 +186,7 @@ function animateValue(id, start, end, duration) {
     }, 16);
 }
 
-// Funds management
+// Funds management (Unchanged)
 function showFundsModal() {
     document.getElementById('fundsModal').classList.add('show');
     document.getElementById('fundsAmount').value = '';
@@ -273,7 +261,7 @@ function showFundsError(message) {
     errorEl.classList.remove('hidden');
 }
 
-// Game functions
+// Game functions (Unchanged)
 function playGame(gameType) {
     document.getElementById('lobbyContainer').style.display = 'none';
     document.getElementById('gameContainer').style.display = 'block';
@@ -298,19 +286,26 @@ function backToLobby() {
         });
 }
 
-// --- INIT GAME FUNCTION (UPDATED TO AWAIT TEXTURES) ---
+// --- INIT GAME FUNCTION ---
 function initGame() {
     const canvas = document.getElementById('renderCanvas');
     gameEngine = new BABYLON.Engine(canvas, true);
     
-    // A. Start loading textures immediately on a temporary scene
-    textureLoadPromise = preloadTextures(new BABYLON.Scene(gameEngine));
+    // Create a dummy scene to hold the textures during loading
+    const tempScene = new BABYLON.Scene(gameEngine);
 
-    textureLoadPromise.then((loadedTextures) => {
-        // B. Once textures are ready, create the scene
-        gameScene = createScene(canvas, loadedTextures); 
+    // A. Start loading textures using the AssetsManager
+    textureLoadPromise = preloadTextures(tempScene);
+
+    textureLoadPromise.then((loadedAssets) => {
+        // B. Dispose of the temporary scene
+        tempScene.dispose(); 
         
-        // C. Start the render loop
+        // C. Once textures are ready, create the final scene
+        // We pass the engine, but the loadedAssets are global (loadedTextures)
+        gameScene = createScene(canvas); 
+        
+        // D. Start the render loop
         gameEngine.runRenderLoop(() => {
             gameScene.render();
         });
@@ -320,14 +315,14 @@ function initGame() {
         });
 
     }).catch(error => {
-        // D. Handle a critical error if textures fail to load
-        console.error("Critical error: One or more textures failed to load.", error);
+        // E. Handle a critical error if textures fail to load
+        console.error("Critical error: Game assets failed to load.", error);
         showError("Game assets failed to load. Please refresh and check image paths in console.");
     });
 }
 
-// --- CREATE SCENE FUNCTION (UPDATED SIGNATURE) ---
-function createScene(canvas, loadedTextures) {
+// --- CREATE SCENE FUNCTION (UPDATED SIGNATURE - NO TEXTURES PASSED, USES GLOBAL) ---
+function createScene(canvas) {
     const scene = new BABYLON.Scene(gameEngine);
     scene.clearColor = new BABYLON.Color4(0, 0, 0, 0);
     
@@ -348,14 +343,14 @@ function createScene(canvas, loadedTextures) {
         Math.PI / 3, 2, scene);
     spotLight.intensity = 1.5;
     
-    createSlotMachine(scene, loadedTextures);
+    createSlotMachine(scene); // Textures are now accessed via the global loadedTextures map
     createEnvironment(scene);
     
     return scene;
 }
 
 // --- CREATE SLOT MACHINE FUNCTION (UPDATED SIGNATURE) ---
-function createSlotMachine(scene, loadedTextures) {
+function createSlotMachine(scene) {
     const machineMat = new BABYLON.StandardMaterial("machineMat", scene);
     machineMat.diffuseColor = new BABYLON.Color3(0.8, 0.1, 0.2);
     machineMat.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
@@ -387,7 +382,7 @@ function createSlotMachine(scene, loadedTextures) {
         reelContainer.material = reelMat;
         reelContainer.freezeWorldMatrix(); 
         
-        const reel = createReel(scene, i, loadedTextures);
+        const reel = createReel(scene, i); // No need to pass loadedTextures
         reel.position = new BABYLON.Vector3(positions[i], 0, 1.8);
         reelMeshes.push(reel);
         
@@ -403,8 +398,8 @@ function createSlotMachine(scene, loadedTextures) {
     }
 }
 
-// --- CREATE REEL FUNCTION (FINAL VISUAL FIX) ---
-function createReel(scene, index, loadedTextures) {
+// --- CREATE REEL FUNCTION (USES GLOBAL loadedTextures) ---
+function createReel(scene, index) {
     const symbolTexts = [];
     const parent = new BABYLON.TransformNode(`reel${index}`, scene);
     
@@ -421,13 +416,13 @@ function createReel(scene, index, loadedTextures) {
         
         // Choose a random symbol key and USE its texture from the pre-loaded map
         const symbolKey = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
-        const texture = loadedTextures[symbolKey];
+        const texture = loadedTextures[symbolKey]; // Access the global map
 
         // Material settings for Emissive Texture and Visibility
         mat.backFaceCulling = false;
         mat.hasAlpha = true;         
         
-        // Set emissive texture and color only if the texture is verified ready
+        // Set emissive texture and color only if the texture is found and verified ready
         if (texture && texture.isReady()) {
             mat.emissiveTexture = texture; 
             mat.emissiveColor = new BABYLON.Color3(1, 1, 1); // Full white emission to display the image color
@@ -512,7 +507,7 @@ async function spin() {
     document.getElementById('spinButton').disabled = false;
 }
 
-// --- SPIN REEL FUNCTION (FIXED ANIMATION CLEANUP) ---
+// --- SPIN REEL FUNCTION (FIXED DISPOSE ERROR) ---
 function spinReel(reel, index) {
     return new Promise((resolve) => {
         const animationName = `reelSpinAnim${index}`;
@@ -556,8 +551,9 @@ function spinReel(reel, index) {
             
             reel.position.y = targetY; // Ensure snap to the *exact* final position
             
-            // Explicitly end and dispose of the animatable
-            animatable.dispose(); 
+            // FIX: Stop the animation before disposing to prevent "dispose is not a function" error
+            animatable.stop(); 
+            // animatable.dispose(); // Often redundant after stop(), removed to be safer
             
             resolve();
         });
@@ -628,7 +624,7 @@ function hideResult() {
     document.getElementById('resultOverlay').classList.remove('show');
 }
 
-// Enter key handlers
+// Enter key handlers (Unchanged)
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('loginPassword').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') login();
