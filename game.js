@@ -1,7 +1,7 @@
 // ===============================================
-//  game.js – Beautiful 3D Slot Machine (EMOJI FINAL)
+//  game.js – Beautiful 3D Slot Machine (EMOJI FINAL - ADT VISIBILITY FIX)
 //  Symbols are now emojis displayed via Babylon.js GUI.
-//  Fixes: Animation cleanup, Scene Initialization, clean disposal of intervals.
+//  Fixes: Animation cleanup, Scene Initialization, clean disposal of intervals, and ADT anchor visibility.
 // ===============================================
 
 let currentUser = null;
@@ -277,8 +277,13 @@ function createScene() {
     scene.clearColor = new BABYLON.Color4(0.02, 0, 0.05, 1);
     
     // NEW: Create the AdvancedDynamicTexture overlay once for the entire scene
+    const adtAnchor = BABYLON.MeshBuilder.CreatePlane("adt_anchor", { size: 10 }, scene);
+    
+    // 🔥 CRITICAL FIX: Make the anchor plane invisible so it doesn't block the view
+    adtAnchor.visibility = 0; 
+    
     const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
-        BABYLON.MeshBuilder.CreatePlane("adt_anchor", { size: 10 }, scene), 
+        adtAnchor, 
         1024, 
         1024, 
         true
