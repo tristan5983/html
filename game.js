@@ -1,6 +1,6 @@
 // ===============================================
-//  game.js – Beautiful 3D Slot Machine (FIXED)
-//  Fixes: Animation cleanup, Material usage, Spin consistency.
+//  game.js – Beautiful 3D Slot Machine (EMOJI FIX)
+//  Symbols are now displayed using Babylon.js GUI and emojis.
 // ===============================================
 
 let currentUser = null;
@@ -10,23 +10,26 @@ let isSpinning = false;
 let currentBet = 10;
 let reels = [];
 let reelMeshes = [];
-let loadedTextures = {};
+// REMOVED: loadedTextures = {};
 let particleSystem = null;
 let glowFrames = [];
+let spotLightInterval = null;
 
 const symbolKeys = ['BAR', 'CHERRY', 'CROWN', 'DIAMOND', 'FREE_SPIN', 'SCATTER', 'SEVEN', 'WILD'];
-const symbolImageMap = {
-    BAR: '/images/bar.png',
-    CHERRY: '/images/cherry.png',
-    CROWN: '/images/crown.png',
-    DIAMOND: '/images/diamond.png',
-    FREE_SPIN: '/images/free_spin.png',
-    SCATTER: '/images/scatter.png',
-    SEVEN: '/images/seven.png',
-    WILD: '/images/wild.png'
+// CHANGED: Use a map to store the actual emoji symbols
+const symbolEmojiMap = {
+    BAR: '🍒', // Cherry is often used as a common symbol
+    CHERRY: '🔔',
+    CROWN: '👑',
+    DIAMOND: '💎',
+    FREE_SPIN: '⭐',
+    SCATTER: '💰',
+    SEVEN: '7️⃣',
+    WILD: '⭐' // Used WILD for the star/wild symbol
 };
 
 // ====================== AUTH ======================
+// (Authentication functions remain unchanged)
 async function login() {
     const username = document.getElementById('loginUsername').value.trim();
     const password = document.getElementById('loginPassword').value;
@@ -124,14 +127,12 @@ async function loadJackpot() {
         document.getElementById('jackpotAmount').textContent = data.amount.toFixed(2);
         document.getElementById('gameJackpot').textContent = data.amount.toFixed(2);
 
-        // Adaptation: Store interval reference for potential cleanup
-        const jackpotInterval = setInterval(async () => {
+        setInterval(async () => {
             const r = await fetch('/api/jackpot');
             const d = await r.json();
             animateValue('jackpotAmount', parseFloat(document.getElementById('jackpotAmount').textContent), d.amount, 1000);
             animateValue('gameJackpot', parseFloat(document.getElementById('gameJackpot').textContent), d.amount, 1000);
         }, 5000);
-        // Note: You may want to clear this if the game engine is disposed.
     } catch (e) {
         console.error('Jackpot load failed:', e);
     }
@@ -141,12 +142,10 @@ function animateValue(id, start, end, duration) {
     const el = document.getElementById(id);
     const range = end - start;
     let current = start;
-    // Fix: Handle the case where range is zero to prevent division issues
     const increment = range !== 0 ? range / (duration / 16) : 0; 
 
     const timer = setInterval(() => {
         current += increment;
-        // Check if the target is reached (handling both positive and negative increments)
         if ((increment > 0 && current >= end) || (increment < 0 && current <= end) || increment === 0) {
             current = end;
             clearInterval(timer);
@@ -218,13 +217,16 @@ function playGame() {
     document.getElementById('lobbyContainer').style.display = 'none';
     document.getElementById('gameContainer').style.display = 'block';
     
-    // Adaptation: Clean up the old scene if it exists (for reloading the game)
-    if (gameScene) {
-        gameScene.dispose();
+    if (gameEngine) {
+        if (gameScene) gameScene.dispose();
         gameScene = null;
         reels = [];
         reelMeshes = [];
         glowFrames = [];
+        if (spotLightInterval) {
+            clearInterval(spotLightInterval);
+            spotLightInterval = null;
+        }
     }
     
     if (!gameEngine) initGame();
@@ -254,49 +256,33 @@ function changeBet(delta) {
 }
 
 // ====================== BABYLON.JS SETUP ======================
-function preloadTextures(scene) {
-    const assetsManager = new BABYLON.AssetsManager(scene);
-    for (const key in symbolImageMap) {
-        const task = assetsManager.addTextureTask(key, symbolImageMap[key]);
-        task.onSuccess = (t) => { loadedTextures[key] = t.texture; };
-         // Adaptation: Add error handling for individual textures
-        task.onError = (task, message, exception) => {
-            console.error(`Failed to load texture for ${task.name}: ${message}`, exception);
-        }
-    }
-    return new Promise((resolve, reject) => {
-        assetsManager.onFinish = () => resolve();
-        // Adaptation: Add error handling for the entire batch
-        assetsManager.onError = (task, message, exception) => {
-            reject(`AssetsManager critical error loading assets: ${message}`);
-        }
-        assetsManager.load();
-    });
-}
+// REMOVED: preloadTextures function is no longer needed
 
 function initGame() {
     const canvas = document.getElementById('renderCanvas');
-    // Fix: Engine constructor options are the fourth argument if using antialias (true)
-    gameEngine = new BABYLON.Engine(canvas, true, null, { preserveDrawingBuffer: true, stencil: true });
+    gameEngine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 
-    const tempScene = new BABYLON.Scene(gameEngine);
-    preloadTextures(tempScene).then(() => {
-        tempScene.dispose();
-        gameScene = createScene();
-        gameEngine.runRenderLoop(() => gameScene.render());
-        window.addEventListener('resize', () => gameEngine.resize());
-    }).catch(err => {
-        console.error("Texture load failed:", err);
-        alert("Failed to load symbols. Check image paths or permissions.");
-    });
+    // Since we don't need to wait for textures, we initialize the scene directly
+    gameScene = createScene();
+    gameEngine.runRenderLoop(() => gameScene.render());
+    window.addEventListener('resize', () => gameEngine.resize());
 }
 
 function createScene() {
     const scene = new BABYLON.Scene(gameEngine);
     scene.clearColor = new BABYLON.Color4(0.02, 0, 0.05, 1);
+    
+    // Create the AdvancedDynamicTexture overlay once for the entire scene
+    const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
+        BABYLON.MeshBuilder.CreatePlane("adt_anchor", { size: 10 }, scene), 
+        1024, 
+        1024, 
+        true
+    );
+    advancedTexture.rootContainer.name = "ADTRoot";
+    advancedTexture.scale(0.1); // Scale down the ADT so text isn't massive
 
     // HDR Environment (falls back gracefully if missing)
-    let spotInterval = null; // Declare interval variable outside try/catch
     try {
         const hdr = BABYLON.CubeTexture.CreateFromPrefilteredData("/env/casino.env", scene);
         scene.environmentTexture = hdr;
@@ -315,15 +301,13 @@ function createScene() {
     const spot = new BABYLON.SpotLight("spot", new BABYLON.Vector3(0,15,-10), new BABYLON.Vector3(0,-1,0.5), Math.PI/2.5, 10, scene);
     spot.intensity = 2;
     
-    // Adaptation: Store interval reference and add disposal logic
-    spotInterval = setInterval(() => {
+    spotLightInterval = setInterval(() => {
         const colors = ["#ff0080","#00ffff","#ffff00","#ff00ff"];
         spot.diffuse = BABYLON.Color3.FromHex(colors[Math.floor(Math.random()*colors.length)]);
     }, 800);
-    scene.onDisposeObservable.addOnce(() => clearInterval(spotInterval));
 
     createCasinoFloor(scene);
-    createSlotMachine(scene);
+    createSlotMachine(scene, advancedTexture); // Pass the texture to be used for symbols
     createWinParticlesSystem(scene);
 
     return scene;
@@ -340,16 +324,13 @@ function createCasinoFloor(scene) {
 }
 
 function createWinParticlesSystem(scene) {
-    // Check if Babylon.js and the texture can be initialized
     try {
         particleSystem = new BABYLON.ParticleSystem("coins", 3000, scene);
         particleSystem.particleTexture = new BABYLON.Texture("/textures/coin.png", scene);
     } catch (e) {
         console.log("Coin texture missing – particles disabled");
-        particleSystem = null; // Ensure the global variable is null if creation fails
         return;
     }
-    
     particleSystem.emitter = new BABYLON.Vector3(0, 2, 2);
     particleSystem.minSize = 0.2;
     particleSystem.maxSize = 0.8;
@@ -371,7 +352,8 @@ function triggerWinParticles() {
     setTimeout(() => { particleSystem.emitRate = 0; }, 1000);
 }
 
-function createSlotMachine(scene) {
+// CHANGED: Accept the advancedTexture
+function createSlotMachine(scene, advancedTexture) {
     // Optional 3D model (graceful fallback)
     BABYLON.SceneLoader.ImportMeshAsync("", "/models/", "slot_machine.glb", scene).then((container) => {
         const root = container.meshes[0];
@@ -381,7 +363,6 @@ function createSlotMachine(scene) {
 
         container.meshes.forEach(m => {
             if (m.material) {
-                // Better: Check if it's already a PBR material before replacing it
                 if (!(m.material instanceof BABYLON.PBRMaterial)) {
                     const pbr = new BABYLON.PBRMaterial(m.material.name + "_pbr", scene);
                     pbr.albedoColor = m.material.albedoColor || m.material.diffuseColor || BABYLON.Color3.White();
@@ -399,11 +380,12 @@ function createSlotMachine(scene) {
     const positions = [-3, 0, 3];
 
     for (let i = 0; i < 3; i++) {
-        const reel = createReel(scene, i);
+        // CHANGED: Pass the advancedTexture to createReel
+        const reel = createReel(scene, i, advancedTexture); 
         reel.position.x = positions[i];
         reelMeshes.push(reel);
 
-        // Glowing frame
+        // Glowing frame (unchanged)
         const frame = BABYLON.MeshBuilder.CreatePlane(`frame${i}`, { width: 3.3, height: 3.3 }, scene);
         frame.position = new BABYLON.Vector3(positions[i], 0, 1.9);
         const fm = new BABYLON.StandardMaterial("frameMat", scene);
@@ -418,7 +400,8 @@ function createSlotMachine(scene) {
     }
 }
 
-function createReel(scene, index) {
+// CHANGED: Accept advancedTexture
+function createReel(scene, index, advancedTexture) {
     const parent = new BABYLON.TransformNode(`reel${index}`, scene);
     const symbols = [];
 
@@ -428,33 +411,35 @@ function createReel(scene, index) {
         plane.position.z = 0.05;
         plane.parent = parent;
 
-        // Adaptation: Create unique materials per symbol (StandardMaterial is OK for flat, glowing planes)
+        // NEW: Material is now simple and dark (no texture/transparency logic needed)
         const mat = new BABYLON.StandardMaterial(`mat${index}_${i}`, scene);
         mat.backFaceCulling = false;
+        mat.diffuseColor = BABYLON.Color3.FromHexString("#2e323e"); // Dark gray/blue for the symbol background
+        mat.specularColor = BABYLON.Color3.Black();
+        mat.emissiveColor = BABYLON.Color3.FromHexString("#444b61"); // Slight internal glow
+        plane.material = mat;
 
         const key = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
-        const tex = loadedTextures[key];
+        const emoji = symbolEmojiMap[key];
 
-        if (tex && tex.isReady()) {
-            // FIX for white squares and transparency: 
-            // 1. Use emissiveTexture for the glowing symbol image.
-            mat.emissiveTexture = tex;
-            mat.emissiveColor = new BABYLON.Color3(1.6, 1.6, 1.6);
-            
-            // 2. Use opacityTexture and hasAlpha to handle the transparency mask.
-            mat.opacityTexture = tex; // Use the same texture for the alpha mask
-            mat.hasAlpha = true;      // Enable alpha blending
-            
-            // 3. Ensure diffuse/specular is black so only the emissive light is seen.
-            mat.diffuseColor = BABYLON.Color3.Black();
-            mat.specularColor = BABYLON.Color3.Black();
-        } else {
-            // Fallback for missing texture (will show the plane color)
-            mat.emissiveColor = new BABYLON.Color3(0.3, 0.3, 0.4);
-            mat.diffuseColor = BABYLON.Color3.Black();
-        }
+        // NEW: Create an overlay to display the emoji
+        const textBlock = new BABYLON.GUI.TextBlock();
+        textBlock.text = emoji;
+        textBlock.color = "white";
+        textBlock.fontSize = 150; // Large size for visibility
+        advancedTexture.addControl(textBlock);
 
-        // Glow rim
+        // Link the text block to the plane's position
+        textBlock.linkWithMesh(plane);
+        
+        // Offset the emoji slightly in front of the reel plane
+        textBlock.linkOffsetX = 0;
+        textBlock.linkOffsetY = 0;
+        
+        // This makes sure the emoji always faces the camera
+        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; 
+
+        // Glow rim (unchanged)
         const glow = BABYLON.MeshBuilder.CreatePlane("glow", { width: 2.4, height: 2.4 }, scene);
         glow.position.z = -0.02;
         glow.parent = plane;
@@ -463,8 +448,7 @@ function createReel(scene, index) {
         gm.alpha = 0.7;
         glow.material = gm;
 
-        plane.material = mat;
-        symbols.push({ plane, symbol: key });
+        symbols.push({ plane, symbol: key, textBlock }); // Store the textBlock for potential future updates
     }
 
     reels[index] = symbols;
@@ -487,7 +471,6 @@ async function spin() {
     const visibleSymbols = reelMeshes.map((reel, i) => {
         let idx = Math.round(-reel.position.y / 2.5) % 20;
         if (idx < 0) idx += 20;
-        // Adaptation: Ensure index is valid for symbols array
         return reels[i][idx] ? reels[i][idx].symbol : symbolKeys[0]; 
     });
 
@@ -512,10 +495,8 @@ function spinReel(reel, index) {
         ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEOUT);
         anim.setEasingFunction(ease);
 
-        // FIX for Uncaught TypeError: animatable.dispose is not a function (on spin end)
         const animatable = gameScene.beginDirectAnimation(reel, [anim], 0, 100, false, duration / 1000, () => {
             reel.position.y = targetY;
-            // CRITICAL FIX: Stop the animatable to clean up its state before resolving/disposal
             if (animatable) animatable.stop(); 
             resolve();
         });
@@ -534,9 +515,24 @@ async function submitGameResult(symbols) {
         showResult(`JACKPOT! +$${winAmount.toFixed(2)}`);
         triggerWinParticles();
         glowFrames.forEach(f => {
-            // Adaptation: Ensure the target is the mesh ('f') and the property is 'scaling'
-            BABYLON.Animation.CreateAndStartAnimation("pulseX", f, "scaling.x", 60, 40, 1, 1.5, BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE, new BABYLON.BounceEase());
-            BABYLON.Animation.CreateAndStartAnimation("pulseY", f, "scaling.y", 60, 40, 1, 1.5, BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE, new BABYLON.BounceEase());
+            const bounceEase = new BABYLON.BounceEase();
+            bounceEase.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+
+            BABYLON.Animation.CreateAndStartAnimation("pulseX", f, "scaling.x", 
+                60, 
+                40, 
+                1, 
+                1.5, 
+                BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE, 
+                bounceEase); 
+                
+            BABYLON.Animation.CreateAndStartAnimation("pulseY", f, "scaling.y", 
+                60, 
+                40, 
+                1, 
+                1.5, 
+                BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE, 
+                bounceEase);
         });
     } else if (symbols[0] === symbols[1] || symbols[1] === symbols[2]) {
         winAmount = currentBet * 2;
@@ -572,17 +568,33 @@ function hideResult() {
     document.getElementById('resultOverlay').classList.remove('show');
 }
 
-// ====================== ENTER KEY ======================
-document.addEventListener('DOMContentLoaded', () => {
-    // Ensure all functions are available if script loading is delayed
-    window.login = login;
-    window.register = register;
-    window.showRegister = showRegister;
+// ====================== BOOTSTRAP ======================
+(function bootstrap() {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
 
-    document.getElementById('loginPassword')?.addEventListener('keypress', e => {
-        if (e.key === 'Enter') login();
-    });
-    document.getElementById('registerPassword')?.addEventListener('keypress', e => {
-        if (e.key === 'Enter') register();
-    });
-});
+    function init() {
+        console.log("🎰 Game JS loaded successfully!"); 
+
+        const loginBtn = document.getElementById('loginButton'); 
+        if (loginBtn) loginBtn.addEventListener('click', login);
+
+        const registerBtn = document.getElementById('registerButton');
+        if (registerBtn) registerBtn.addEventListener('click', showRegister);
+        
+        document.getElementById('loginPassword')?.addEventListener('keypress', e => {
+            if (e.key === 'Enter') login();
+        });
+        document.getElementById('registerPassword')?.addEventListener('keypress', e => {
+            if (e.key === 'Enter') register();
+        });
+
+        window.login = login;
+        window.showRegister = showRegister;
+        window.register = register;
+        window.playGame = playGame;
+    }
+})();
