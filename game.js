@@ -1,9 +1,3 @@
-// ===============================================
-//  game.js – Beautiful 3D Slot Machine (EMOJI FINAL - ADT VISIBILITY FIX)
-//  Symbols are now emojis displayed via Babylon.js GUI.
-//  Fixes: Animation cleanup, Scene Initialization, clean disposal of intervals, and ADT anchor visibility.
-// ===============================================
-
 let currentUser = null;
 let gameEngine = null;
 let gameScene = null;
@@ -11,22 +5,22 @@ let isSpinning = false;
 let currentBet = 10;
 let reels = [];
 let reelMeshes = [];
-// REMOVED: loadedTextures = {};
 let particleSystem = null;
 let glowFrames = [];
 let spotLightInterval = null; // Track spot light interval
 
 const symbolKeys = ['BAR', 'CHERRY', 'CROWN', 'DIAMOND', 'FREE_SPIN', 'SCATTER', 'SEVEN', 'WILD'];
-// CHANGED: Emoji Map
-const symbolEmojiMap = {
-    BAR: '🔔',
-    CHERRY: '🍒',
-    CROWN: '👑',
-    DIAMOND: '💎',
-    FREE_SPIN: '✨',
-    SCATTER: '💰',
-    SEVEN: '7️⃣',
-    WILD: 'W' // Use 'W' for the Wild symbol
+
+// Map symbols to textures (update paths to your actual files)
+const symbolTextureMap = {
+    BAR: '/textures/symbol_bar.png',
+    CHERRY: '/textures/symbol_cherry.png',
+    CROWN: '/textures/symbol_crown.png',
+    DIAMOND: '/textures/symbol_diamond.png',
+    FREE_SPIN: '/textures/symbol_freespin.png',
+    SCATTER: '/textures/symbol_scatter.png',
+    SEVEN: '/textures/symbol_seven.png',
+    WILD: '/textures/symbol_wild.png'
 };
 
 // ====================== AUTH ======================
@@ -128,10 +122,14 @@ async function loadJackpot() {
         document.getElementById('gameJackpot').textContent = data.amount.toFixed(2);
 
         setInterval(async () => {
-            const r = await fetch('/api/jackpot');
-            const d = await r.json();
-            animateValue('jackpotAmount', parseFloat(document.getElementById('jackpotAmount').textContent), d.amount, 1000);
-            animateValue('gameJackpot', parseFloat(document.getElementById('gameJackpot').textContent), d.amount, 1000);
+            try {
+                const r = await fetch('/api/jackpot');
+                const d = await r.json();
+                animateValue('jackpotAmount', parseFloat(document.getElementById('jackpotAmount').textContent), d.amount, 1000);
+                animateValue('gameJackpot', parseFloat(document.getElementById('gameJackpot').textContent), d.amount, 1000);
+            } catch (e) {
+                console.error('Jackpot refresh failed:', e);
+            }
         }, 5000);
     } catch (e) {
         console.error('Jackpot load failed:', e);
@@ -142,8 +140,7 @@ function animateValue(id, start, end, duration) {
     const el = document.getElementById(id);
     const range = end - start;
     let current = start;
-    // FIX: Handle zero range case to prevent issues
-    const increment = range !== 0 ? range / (duration / 16) : 0; 
+    const increment = range !== 0 ? range / (duration / 16) : 0;
 
     const timer = setInterval(() => {
         current += increment;
@@ -217,7 +214,7 @@ function showFundsError(msg) {
 function playGame() {
     document.getElementById('lobbyContainer').style.display = 'none';
     document.getElementById('gameContainer').style.display = 'block';
-    
+
     // Clean up if a previous scene exists
     if (gameEngine) {
         if (gameScene) gameScene.dispose();
@@ -225,13 +222,12 @@ function playGame() {
         reels = [];
         reelMeshes = [];
         glowFrames = [];
-        // Clear the interval for the spot light if it exists
         if (spotLightInterval) {
             clearInterval(spotLightInterval);
             spotLightInterval = null;
         }
     }
-    
+
     if (!gameEngine) initGame();
     updateGameUI();
 }
@@ -244,7 +240,8 @@ function backToLobby() {
         .then(d => {
             currentUser = d;
             updateBalance();
-        });
+        })
+        .catch(e => console.error('Failed to refresh user:', e));
 }
 
 function updateGameUI() {
@@ -259,38 +256,22 @@ function changeBet(delta) {
 }
 
 // ====================== BABYLON.JS SETUP ======================
-// REMOVED: preloadTextures function is no longer needed
-
 function initGame() {
     const canvas = document.getElementById('renderCanvas');
-    // FIX: Ensure correct engine constructor signature when passing options
     gameEngine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 
-    // Since we don't need to wait for textures, we initialize the scene directly
     gameScene = createScene();
-    gameEngine.runRenderLoop(() => gameScene.render());
+    gameEngine.runRenderLoop(() => {
+        if (gameScene) gameScene.render();
+    });
     window.addEventListener('resize', () => gameEngine.resize());
 }
 
 function createScene() {
     const scene = new BABYLON.Scene(gameEngine);
     scene.clearColor = new BABYLON.Color4(0.02, 0, 0.05, 1);
-    
-    // NEW: Create the AdvancedDynamicTexture overlay once for the entire scene
-    const adtAnchor = BABYLON.MeshBuilder.CreatePlane("adt_anchor", { size: 10 }, scene);
-    
-    // 🔥 CRITICAL FIX: Make the anchor plane invisible so it doesn't block the view
-    adtAnchor.visibility = 0; 
-    
-    const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
-        adtAnchor, 
-        1024, 
-        1024, 
-        true
-    );
-    advancedTexture.scale(0.1); // Scale down the ADT so text isn't massive
 
-    // HDR Environment (falls back gracefully if missing)
+    // HDR Environment (fallback if missing)
     try {
         const hdr = BABYLON.CubeTexture.CreateFromPrefilteredData("/env/casino.env", scene);
         scene.environmentTexture = hdr;
@@ -306,17 +287,16 @@ function createScene() {
 
     new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene).intensity = 0.6;
 
-    const spot = new BABYLON.SpotLight("spot", new BABYLON.Vector3(0,15,-10), new BABYLON.Vector3(0,-1,0.5), Math.PI/2.5, 10, scene);
+    const spot = new BABYLON.SpotLight("spot", new BABYLON.Vector3(0, 15, -10), new BABYLON.Vector3(0, -1, 0.5), Math.PI / 2.5, 10, scene);
     spot.intensity = 2;
-    
-    // FIX: Store interval in the global variable so it can be cleared in playGame()
+
     spotLightInterval = setInterval(() => {
-        const colors = ["#ff0080","#00ffff","#ffff00","#ff00ff"];
-        spot.diffuse = BABYLON.Color3.FromHex(colors[Math.floor(Math.random()*colors.length)]);
+        const colors = ["#ff0080", "#00ffff", "#ffff00", "#ff00ff"];
+        spot.diffuse = BABYLON.Color3.FromHexString(colors[Math.floor(Math.random() * colors.length)]);
     }, 800);
 
     createCasinoFloor(scene);
-    createSlotMachine(scene, advancedTexture); // Pass the texture to be used for symbols
+    createSlotMachine(scene);
     createWinParticlesSystem(scene);
 
     return scene;
@@ -335,7 +315,7 @@ function createCasinoFloor(scene) {
 function createWinParticlesSystem(scene) {
     try {
         particleSystem = new BABYLON.ParticleSystem("coins", 3000, scene);
-        particleSystem.particleTexture = new BABYLON.Texture("/textures/coin.png", scene); 
+        particleSystem.particleTexture = new BABYLON.Texture("/textures/coin.png", scene);
     } catch (e) {
         console.log("Coin texture missing – particles disabled");
         return;
@@ -361,44 +341,43 @@ function triggerWinParticles() {
     setTimeout(() => { particleSystem.emitRate = 0; }, 1000);
 }
 
-// CHANGED: Accept the advancedTexture
-function createSlotMachine(scene, advancedTexture) {
+// ====================== SLOT MACHINE (TEXTURE-BASED REELS) ======================
+function createSlotMachine(scene) {
     // Optional 3D model (graceful fallback)
-    BABYLON.SceneLoader.ImportMeshAsync("", "/models/", "slot_machine.glb", scene).then((container) => {
-        const root = container.meshes[0];
-        root.scaling = new BABYLON.Vector3(3, 3, 3);
-        root.position.y = -2.5;
-        root.rotation.y = Math.PI;
+    BABYLON.SceneLoader.ImportMeshAsync("", "/models/", "slot_machine.glb", scene)
+        .then((container) => {
+            const root = container.meshes[0];
+            root.scaling = new BABYLON.Vector3(3, 3, 3);
+            root.position.y = -2.5;
+            root.rotation.y = Math.PI;
 
-        container.meshes.forEach(m => {
-            if (m.material) {
-                // Check if it's already PBR before replacing
-                if (!(m.material instanceof BABYLON.PBRMaterial)) {
-                    const pbr = new BABYLON.PBRMaterial(m.material.name + "_pbr", scene);
-                    pbr.albedoColor = m.material.albedoColor || m.material.diffuseColor || BABYLON.Color3.White();
-                    pbr.metallic = 0.98;
-                    pbr.roughness = 0.12;
-                    m.material = pbr;
-                } else {
-                    m.material.metallic = 0.98;
-                    m.material.roughness = 0.12;
+            container.meshes.forEach(m => {
+                if (m.material) {
+                    if (!(m.material instanceof BABYLON.PBRMaterial)) {
+                        const pbr = new BABYLON.PBRMaterial(m.material.name + "_pbr", scene);
+                        pbr.albedoColor = m.material.albedoColor || m.material.diffuseColor || BABYLON.Color3.White();
+                        pbr.metallic = 0.98;
+                        pbr.roughness = 0.12;
+                        m.material = pbr;
+                    } else {
+                        m.material.metallic = 0.98;
+                        m.material.roughness = 0.12;
+                    }
                 }
-            }
-        });
-    }).catch(() => console.log("3D model missing – using reels only"));
+            });
+        })
+        .catch(() => console.log("3D model missing – using reels only"));
 
     const positions = [-3, 0, 3];
 
     for (let i = 0; i < 3; i++) {
-        // CHANGED: Pass the advancedTexture to createReel
-        const reel = createReel(scene, i, advancedTexture); 
+        const reel = createReel(scene, i);
         reel.position.x = positions[i];
         reelMeshes.push(reel);
 
-        // Glowing frame (unchanged)
         const frame = BABYLON.MeshBuilder.CreatePlane(`frame${i}`, { width: 3.3, height: 3.3 }, scene);
         frame.position = new BABYLON.Vector3(positions[i], 0, 1.9);
-        const fm = new BABYLON.StandardMaterial("frameMat", scene);
+        const fm = new BABYLON.StandardMaterial(`frameMat${i}`, scene);
         fm.emissiveColor = new BABYLON.Color3(1, 0.7, 0);
         fm.emissiveFresnelParameters = new BABYLON.FresnelParameters();
         fm.emissiveFresnelParameters.bias = 0.6;
@@ -410,8 +389,7 @@ function createSlotMachine(scene, advancedTexture) {
     }
 }
 
-// CHANGED: Accept advancedTexture
-function createReel(scene, index, advancedTexture) {
+function createReel(scene, index) {
     const parent = new BABYLON.TransformNode(`reel${index}`, scene);
     const symbols = [];
 
@@ -421,41 +399,38 @@ function createReel(scene, index, advancedTexture) {
         plane.position.z = 0.05;
         plane.parent = parent;
 
-        // NEW: Material is simple background for the emoji
+        const key = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
+        const texPath = symbolTextureMap[key];
+
         const mat = new BABYLON.StandardMaterial(`mat${index}_${i}`, scene);
         mat.backFaceCulling = false;
-        mat.diffuseColor = BABYLON.Color3.FromHexString("#2e323e"); // Dark gray/blue background
+        mat.diffuseColor = BABYLON.Color3.White();
         mat.specularColor = BABYLON.Color3.Black();
-        mat.emissiveColor = BABYLON.Color3.FromHexString("#444b61"); // Slight internal glow
+
+        if (texPath) {
+            try {
+                mat.diffuseTexture = new BABYLON.Texture(texPath, scene);
+            } catch (e) {
+                console.warn(`Texture missing for symbol ${key}:`, texPath);
+                mat.diffuseColor = BABYLON.Color3.FromHexString("#2e323e");
+                mat.emissiveColor = BABYLON.Color3.FromHexString("#444b61");
+            }
+        } else {
+            mat.diffuseColor = BABYLON.Color3.FromHexString("#2e323e");
+            mat.emissiveColor = BABYLON.Color3.FromHexString("#444b61");
+        }
+
         plane.material = mat;
-        
-        const key = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
-        const emoji = symbolEmojiMap[key];
 
-        // NEW: Create an overlay to display the emoji
-        const textBlock = new BABYLON.GUI.TextBlock();
-        textBlock.text = emoji;
-        textBlock.color = "white";
-        textBlock.fontFamily = "Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif"; // Ensure emoji support
-        textBlock.fontSize = 150; // Large size for visibility
-        advancedTexture.addControl(textBlock);
-
-        // Link the text block to the plane's position
-        textBlock.linkWithMesh(plane);
-        
-        // This makes sure the emoji always faces the camera
-        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; 
-
-        // Glow rim (unchanged)
-        const glow = BABYLON.MeshBuilder.CreatePlane("glow", { width: 2.4, height: 2.4 }, scene);
+        const glow = BABYLON.MeshBuilder.CreatePlane(`glow${index}_${i}`, { width: 2.4, height: 2.4 }, scene);
         glow.position.z = -0.02;
         glow.parent = plane;
-        const gm = new BABYLON.StandardMaterial("glowMat", scene);
+        const gm = new BABYLON.StandardMaterial(`glowMat${index}_${i}`, scene);
         gm.emissiveColor = new BABYLON.Color3(1, 0.8, 0.3);
         gm.alpha = 0.7;
         glow.material = gm;
 
-        symbols.push({ plane, symbol: key, textBlock }); // Store the textBlock for potential future updates
+        symbols.push({ plane, symbol: key });
     }
 
     reels[index] = symbols;
@@ -473,14 +448,12 @@ async function spin() {
     document.getElementById('spinButton').disabled = true;
     hideResult();
 
-    // Minor fix to ensure all symbols are checked before accessing .symbol property
     await Promise.all(reelMeshes.map((reel, i) => spinReel(reel, i)));
 
     const visibleSymbols = reelMeshes.map((reel, i) => {
         let idx = Math.round(-reel.position.y / 2.5) % 20;
         if (idx < 0) idx += 20;
-        // Safety check added here in case the symbol array isn't fully populated
-        return reels[i][idx] ? reels[i][idx].symbol : symbolKeys[0]; 
+        return reels[i][idx] ? reels[i][idx].symbol : symbolKeys[0];
     });
 
     await submitGameResult(visibleSymbols);
@@ -494,7 +467,14 @@ function spinReel(reel, index) {
         const duration = 2000 + index * 600;
         const targetY = -Math.floor(Math.random() * 20) * 2.5;
 
-        const anim = new BABYLON.Animation("spin", "position.y", 60, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+        const anim = new BABYLON.Animation(
+            `spin${index}`,
+            "position.y",
+            60,
+            BABYLON.Animation.ANIMATIONTYPE_FLOAT,
+            BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
+        );
+
         anim.setKeys([
             { frame: 0, value: reel.position.y },
             { frame: 100, value: reel.position.y - 50 + targetY }
@@ -504,12 +484,20 @@ function spinReel(reel, index) {
         ease.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEOUT);
         anim.setEasingFunction(ease);
 
-        const animatable = gameScene.beginDirectAnimation(reel, [anim], 0, 100, false, duration / 1000, () => {
-            reel.position.y = targetY;
-            // CRITICAL FIX: Stop the animatable object to clean up its state
-            if (animatable) animatable.stop(); 
-            resolve();
-        });
+        let animatable = null;
+        animatable = gameScene.beginDirectAnimation(
+            reel,
+            [anim],
+            0,
+            100,
+            false,
+            duration / 1000,
+            () => {
+                reel.position.y = targetY;
+                if (animatable) animatable.stop();
+                resolve();
+            }
+        );
     });
 }
 
@@ -525,27 +513,32 @@ async function submitGameResult(symbols) {
         showResult(`JACKPOT! +$${winAmount.toFixed(2)}`);
         triggerWinParticles();
         glowFrames.forEach(f => {
-            // FIX: Using CreateAndStartAnimation with proper looping/easing setup
             const bounceEase = new BABYLON.BounceEase();
             bounceEase.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
 
-            // Pulse on X scale
-            BABYLON.Animation.CreateAndStartAnimation("pulseX", f, "scaling.x", 
-                60, // Frame rate
-                40, // Total frames (duration)
-                1,  // Start value
-                1.5,// End value
-                BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE, // Loop mode
-                bounceEase); // Easing function
-                
-            // Pulse on Y scale
-            BABYLON.Animation.CreateAndStartAnimation("pulseY", f, "scaling.y", 
-                60, 
-                40, 
-                1, 
-                1.5, 
-                BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE, 
-                bounceEase);
+            BABYLON.Animation.CreateAndStartAnimation(
+                "pulseX",
+                f,
+                "scaling.x",
+                60,
+                40,
+                1,
+                1.5,
+                BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE,
+                bounceEase
+            );
+
+            BABYLON.Animation.CreateAndStartAnimation(
+                "pulseY",
+                f,
+                "scaling.y",
+                60,
+                40,
+                1,
+                1.5,
+                BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE,
+                bounceEase
+            );
         });
     } else if (symbols[0] === symbols[1] || symbols[1] === symbols[2]) {
         winAmount = currentBet * 2;
@@ -590,16 +583,14 @@ function hideResult() {
     }
 
     function init() {
-        console.log("🎰 Game JS loaded successfully!"); 
+        console.log("🎰 Game JS loaded successfully!");
 
-        // Safer event binding
-        const loginBtn = document.getElementById('loginButton'); 
+        const loginBtn = document.getElementById('loginButton');
         if (loginBtn) loginBtn.addEventListener('click', login);
 
         const registerBtn = document.getElementById('registerButton');
         if (registerBtn) registerBtn.addEventListener('click', showRegister);
-        
-        // Enter key support
+
         document.getElementById('loginPassword')?.addEventListener('keypress', e => {
             if (e.key === 'Enter') login();
         });
@@ -607,10 +598,18 @@ function hideResult() {
             if (e.key === 'Enter') register();
         });
 
-        // Global fallbacks for inline onclick (ensures the HTML onclick works)
+        // Global fallbacks for inline onclick (from HTML)
         window.login = login;
         window.showRegister = showRegister;
         window.register = register;
         window.playGame = playGame;
+        window.logout = logout;
+        window.addFunds = addFunds;
+        window.withdrawFunds = withdrawFunds;
+        window.showFundsModal = showFundsModal;
+        window.closeFundsModal = closeFundsModal;
+        window.spin = spin;
+        window.changeBet = changeBet;
+        window.backToLobby = backToLobby;
     }
 })();
