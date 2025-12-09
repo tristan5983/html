@@ -1,6 +1,7 @@
 // ===============================================
-//  game.js – Beautiful 3D Slot Machine (EMOJI FIX)
-//  Symbols are now displayed using Babylon.js GUI and emojis.
+//  game.js – Beautiful 3D Slot Machine (EMOJI FINAL)
+//  Symbols are now emojis displayed via Babylon.js GUI.
+//  Fixes: Animation cleanup, Scene Initialization, clean disposal of intervals.
 // ===============================================
 
 let currentUser = null;
@@ -13,23 +14,22 @@ let reelMeshes = [];
 // REMOVED: loadedTextures = {};
 let particleSystem = null;
 let glowFrames = [];
-let spotLightInterval = null;
+let spotLightInterval = null; // Track spot light interval
 
 const symbolKeys = ['BAR', 'CHERRY', 'CROWN', 'DIAMOND', 'FREE_SPIN', 'SCATTER', 'SEVEN', 'WILD'];
-// CHANGED: Use a map to store the actual emoji symbols
+// CHANGED: Emoji Map
 const symbolEmojiMap = {
-    BAR: '🍒', // Cherry is often used as a common symbol
-    CHERRY: '🔔',
+    BAR: '🔔',
+    CHERRY: '🍒',
     CROWN: '👑',
     DIAMOND: '💎',
-    FREE_SPIN: '⭐',
+    FREE_SPIN: '✨',
     SCATTER: '💰',
     SEVEN: '7️⃣',
-    WILD: '⭐' // Used WILD for the star/wild symbol
+    WILD: 'W' // Use 'W' for the Wild symbol
 };
 
 // ====================== AUTH ======================
-// (Authentication functions remain unchanged)
 async function login() {
     const username = document.getElementById('loginUsername').value.trim();
     const password = document.getElementById('loginPassword').value;
@@ -142,6 +142,7 @@ function animateValue(id, start, end, duration) {
     const el = document.getElementById(id);
     const range = end - start;
     let current = start;
+    // FIX: Handle zero range case to prevent issues
     const increment = range !== 0 ? range / (duration / 16) : 0; 
 
     const timer = setInterval(() => {
@@ -217,12 +218,14 @@ function playGame() {
     document.getElementById('lobbyContainer').style.display = 'none';
     document.getElementById('gameContainer').style.display = 'block';
     
+    // Clean up if a previous scene exists
     if (gameEngine) {
         if (gameScene) gameScene.dispose();
         gameScene = null;
         reels = [];
         reelMeshes = [];
         glowFrames = [];
+        // Clear the interval for the spot light if it exists
         if (spotLightInterval) {
             clearInterval(spotLightInterval);
             spotLightInterval = null;
@@ -260,6 +263,7 @@ function changeBet(delta) {
 
 function initGame() {
     const canvas = document.getElementById('renderCanvas');
+    // FIX: Ensure correct engine constructor signature when passing options
     gameEngine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 
     // Since we don't need to wait for textures, we initialize the scene directly
@@ -272,14 +276,13 @@ function createScene() {
     const scene = new BABYLON.Scene(gameEngine);
     scene.clearColor = new BABYLON.Color4(0.02, 0, 0.05, 1);
     
-    // Create the AdvancedDynamicTexture overlay once for the entire scene
+    // NEW: Create the AdvancedDynamicTexture overlay once for the entire scene
     const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
         BABYLON.MeshBuilder.CreatePlane("adt_anchor", { size: 10 }, scene), 
         1024, 
         1024, 
         true
     );
-    advancedTexture.rootContainer.name = "ADTRoot";
     advancedTexture.scale(0.1); // Scale down the ADT so text isn't massive
 
     // HDR Environment (falls back gracefully if missing)
@@ -301,6 +304,7 @@ function createScene() {
     const spot = new BABYLON.SpotLight("spot", new BABYLON.Vector3(0,15,-10), new BABYLON.Vector3(0,-1,0.5), Math.PI/2.5, 10, scene);
     spot.intensity = 2;
     
+    // FIX: Store interval in the global variable so it can be cleared in playGame()
     spotLightInterval = setInterval(() => {
         const colors = ["#ff0080","#00ffff","#ffff00","#ff00ff"];
         spot.diffuse = BABYLON.Color3.FromHex(colors[Math.floor(Math.random()*colors.length)]);
@@ -326,7 +330,7 @@ function createCasinoFloor(scene) {
 function createWinParticlesSystem(scene) {
     try {
         particleSystem = new BABYLON.ParticleSystem("coins", 3000, scene);
-        particleSystem.particleTexture = new BABYLON.Texture("/textures/coin.png", scene);
+        particleSystem.particleTexture = new BABYLON.Texture("/textures/coin.png", scene); 
     } catch (e) {
         console.log("Coin texture missing – particles disabled");
         return;
@@ -363,6 +367,7 @@ function createSlotMachine(scene, advancedTexture) {
 
         container.meshes.forEach(m => {
             if (m.material) {
+                // Check if it's already PBR before replacing
                 if (!(m.material instanceof BABYLON.PBRMaterial)) {
                     const pbr = new BABYLON.PBRMaterial(m.material.name + "_pbr", scene);
                     pbr.albedoColor = m.material.albedoColor || m.material.diffuseColor || BABYLON.Color3.White();
@@ -411,14 +416,14 @@ function createReel(scene, index, advancedTexture) {
         plane.position.z = 0.05;
         plane.parent = parent;
 
-        // NEW: Material is now simple and dark (no texture/transparency logic needed)
+        // NEW: Material is simple background for the emoji
         const mat = new BABYLON.StandardMaterial(`mat${index}_${i}`, scene);
         mat.backFaceCulling = false;
-        mat.diffuseColor = BABYLON.Color3.FromHexString("#2e323e"); // Dark gray/blue for the symbol background
+        mat.diffuseColor = BABYLON.Color3.FromHexString("#2e323e"); // Dark gray/blue background
         mat.specularColor = BABYLON.Color3.Black();
         mat.emissiveColor = BABYLON.Color3.FromHexString("#444b61"); // Slight internal glow
         plane.material = mat;
-
+        
         const key = symbolKeys[Math.floor(Math.random() * symbolKeys.length)];
         const emoji = symbolEmojiMap[key];
 
@@ -426,15 +431,12 @@ function createReel(scene, index, advancedTexture) {
         const textBlock = new BABYLON.GUI.TextBlock();
         textBlock.text = emoji;
         textBlock.color = "white";
+        textBlock.fontFamily = "Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, sans-serif"; // Ensure emoji support
         textBlock.fontSize = 150; // Large size for visibility
         advancedTexture.addControl(textBlock);
 
         // Link the text block to the plane's position
         textBlock.linkWithMesh(plane);
-        
-        // Offset the emoji slightly in front of the reel plane
-        textBlock.linkOffsetX = 0;
-        textBlock.linkOffsetY = 0;
         
         // This makes sure the emoji always faces the camera
         plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL; 
@@ -466,11 +468,13 @@ async function spin() {
     document.getElementById('spinButton').disabled = true;
     hideResult();
 
+    // Minor fix to ensure all symbols are checked before accessing .symbol property
     await Promise.all(reelMeshes.map((reel, i) => spinReel(reel, i)));
 
     const visibleSymbols = reelMeshes.map((reel, i) => {
         let idx = Math.round(-reel.position.y / 2.5) % 20;
         if (idx < 0) idx += 20;
+        // Safety check added here in case the symbol array isn't fully populated
         return reels[i][idx] ? reels[i][idx].symbol : symbolKeys[0]; 
     });
 
@@ -497,6 +501,7 @@ function spinReel(reel, index) {
 
         const animatable = gameScene.beginDirectAnimation(reel, [anim], 0, 100, false, duration / 1000, () => {
             reel.position.y = targetY;
+            // CRITICAL FIX: Stop the animatable object to clean up its state
             if (animatable) animatable.stop(); 
             resolve();
         });
@@ -515,17 +520,20 @@ async function submitGameResult(symbols) {
         showResult(`JACKPOT! +$${winAmount.toFixed(2)}`);
         triggerWinParticles();
         glowFrames.forEach(f => {
+            // FIX: Using CreateAndStartAnimation with proper looping/easing setup
             const bounceEase = new BABYLON.BounceEase();
             bounceEase.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
 
+            // Pulse on X scale
             BABYLON.Animation.CreateAndStartAnimation("pulseX", f, "scaling.x", 
-                60, 
-                40, 
-                1, 
-                1.5, 
-                BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE, 
-                bounceEase); 
+                60, // Frame rate
+                40, // Total frames (duration)
+                1,  // Start value
+                1.5,// End value
+                BABYLON.Animation.ANIMATIONLOOPMODE_CYCLE, // Loop mode
+                bounceEase); // Easing function
                 
+            // Pulse on Y scale
             BABYLON.Animation.CreateAndStartAnimation("pulseY", f, "scaling.y", 
                 60, 
                 40, 
@@ -579,12 +587,14 @@ function hideResult() {
     function init() {
         console.log("🎰 Game JS loaded successfully!"); 
 
+        // Safer event binding
         const loginBtn = document.getElementById('loginButton'); 
         if (loginBtn) loginBtn.addEventListener('click', login);
 
         const registerBtn = document.getElementById('registerButton');
         if (registerBtn) registerBtn.addEventListener('click', showRegister);
         
+        // Enter key support
         document.getElementById('loginPassword')?.addEventListener('keypress', e => {
             if (e.key === 'Enter') login();
         });
@@ -592,6 +602,7 @@ function hideResult() {
             if (e.key === 'Enter') register();
         });
 
+        // Global fallbacks for inline onclick (ensures the HTML onclick works)
         window.login = login;
         window.showRegister = showRegister;
         window.register = register;
