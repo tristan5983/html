@@ -360,6 +360,42 @@ function createScene() {
     createCasinoFloor(scene);
     createSlotMachine(scene);
     createWinParticlesSystem(scene);
+    
+    // **********************************************
+    // * NEW: Post-Processing Effects for Dramatic Look
+    // **********************************************
+    try {
+        // 1. Glow Layer (for the frames and glowing materials)
+        const glowLayer = new BABYLON.GlowLayer("glow", scene, { 
+            mainTextureSamples: 3, 
+            blurKernelSize: 64 
+        });
+        glowLayer.intensity = 0.5;
+
+        // 2. Chromatic Aberration (subtle distortion effect)
+        const chromaticAberration = new BABYLON.ChromaticAberrationPostProcess(
+            "chromatic", 
+            1.0, // Scale (1.0 is default)
+            camera
+        );
+        // Subtle offset to create a chromatic effect
+        chromaticAberration.red.x = -1.0; 
+        chromaticAberration.green.x = -1.0;
+        chromaticAberration.blue.x = -1.0;
+        chromaticAberration.direction.x = 0;
+
+        // 3. Bloom (makes bright areas brighter)
+        const bloom = new BABYLON.BloomEffect.BloomRenderingPipeline(
+            "bloomPipeline", 
+            scene, 
+            0.5 // Scale
+        );
+        bloom.bloomWeight = 0.7; 
+        bloom.bloomThreshold = 0.5;
+
+    } catch (e) {
+        console.warn("Post-processing effects failed to load. Ensure babylonjs.postProcess.min.js is included.", e);
+    }
 
     return scene;
 }
@@ -477,9 +513,10 @@ function createSlotMachine(scene) {
     const reelGlobalZ = 1.9;
     
     // NOTE: Ensure your file is named EXACTLY 'slot_machine.glb' in the '/models/' folder
-    const modelPath = "/models/slot_machine.glb"; 
+    const rootUrl = "/models/"; 
+    const fileName = "slot_machine.glb";
 
-    // 1. Create reels and glow frames (They are initially positioned in global space)
+    // 1. Create reels and glow frames (Reels are now the primary focus)
     for (let i = 0; i < 3; i++) {
         const reel = createReel(scene, i);
         reel.position.x = positions[i];
@@ -497,22 +534,9 @@ function createSlotMachine(scene) {
         glowFrames.push(frame);
     }
 
-    // 2. Load the Optional 3D model using a resilient fetch/ArrayBuffer method
-    fetch(modelPath)
-        .then(response => {
-            if (!response.ok) {
-                // Throw an error if the server didn't return a 200 status (e.g., 404)
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.arrayBuffer(); // Get the raw binary data
-        })
-        .then(arrayBuffer => {
-            console.log("3D Model binary fetched. Loading into scene...");
-            
-            // Use LoadAssetContainer to load the model from the buffer
-            // The ".glb" extension hint is critical here.
-            return BABYLON.SceneLoader.LoadAssetContainerAsync("", "data:", arrayBuffer, scene, ".glb");
-        })
+    // 2. Load the Optional 3D model using the standard API call.
+    // If this fails (which we are accepting), the catch block executes and the reels remain.
+    BABYLON.SceneLoader.LoadAssetContainerAsync(rootUrl, fileName, scene)
         .then(container => {
             console.log("3D Model loaded successfully. Applying transformations...");
             
@@ -586,7 +610,7 @@ function createSlotMachine(scene) {
             console.log("Reels successfully parented and positioned.");
         })
         .catch((error) => {
-            // The model failed to load. Log the error and rely on the fallback reels.
+            // FALLBACK: The model failed to load. The reels are already in the scene.
             console.error("3D model failed to load. Falling back to reels only.", error);
         });
 }
