@@ -1,8 +1,6 @@
 (function bootstrapGame() {
 /* ============================================================
    Royal Casino - 3D Slot Machine (Texture-Based Final Version)
-   No Babylon GUI. No AdvancedDynamicTexture. No TextBlocks.
-   Fully compatible with updated index.html
    ============================================================ */
 
 let currentUser = null;
@@ -477,6 +475,9 @@ function createSlotMachine(scene) {
     const scaleFactor = 3;
     const machineRootY = -2.5;
     const reelGlobalZ = 1.9;
+    
+    // NOTE: Ensure your file is named EXACTLY 'slot_machine.glb' in the '/models/' folder
+    const modelPath = "/models/slot_machine.glb"; 
 
     // 1. Create reels and glow frames (They are initially positioned in global space)
     for (let i = 0; i < 3; i++) {
@@ -496,12 +497,29 @@ function createSlotMachine(scene) {
         glowFrames.push(frame);
     }
 
-    // 2. Load the Optional 3D model
-    BABYLON.SceneLoader.ImportMeshAsync("", "/models/", "slot_machine.glb", scene)
+    // 2. Load the Optional 3D model using a resilient fetch/ArrayBuffer method
+    fetch(modelPath)
+        .then(response => {
+            if (!response.ok) {
+                // Throw an error if the server didn't return a 200 status (e.g., 404)
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.arrayBuffer(); // Get the raw binary data
+        })
+        .then(arrayBuffer => {
+            console.log("3D Model binary fetched. Loading into scene...");
+            
+            // Use LoadAssetContainer to load the model from the buffer
+            // The ".glb" extension hint is critical here.
+            return BABYLON.SceneLoader.LoadAssetContainerAsync("", "data:", arrayBuffer, scene, ".glb");
+        })
         .then(container => {
             console.log("3D Model loaded successfully. Applying transformations...");
             
             const root = container.meshes[0];
+
+            // Add all assets from the container to the scene
+            container.addAllToScene(); 
 
             // A. Position and scale the main machine model
             root.scaling = new BABYLON.Vector3(scaleFactor, scaleFactor, scaleFactor);
@@ -540,11 +558,11 @@ function createSlotMachine(scene) {
                 reel.scaling = new BABYLON.Vector3(1 / scaleFactor, 1 / scaleFactor, 1 / scaleFactor);
 
                 // Calculate local position relative to the scaled root:
-                reel.position.x = positions[i] / scaleFactor;
-                // Y: (Original Global Y 0 - Root Y -2.5) / Scale 3
-                reel.position.y = (0 - machineRootY) / scaleFactor;
-                // Z: Original Global Z 1.9 / Scale 3. Slightly sink the reel inside the window
-                reel.position.z = (reelGlobalZ / scaleFactor) - 0.05;
+                const reelPosX = positions[i] / scaleFactor;
+                const reelPosY = (0 - machineRootY) / scaleFactor;
+                const reelPosZ = (reelGlobalZ / scaleFactor) - 0.05;
+
+                reel.position = new BABYLON.Vector3(reelPosX, reelPosY, reelPosZ);
 
                 // Counteract the root's 180-degree rotation so the symbols face the camera
                 reel.rotation.y = Math.PI; 
@@ -555,9 +573,11 @@ function createSlotMachine(scene) {
                 frame.scaling = new BABYLON.Vector3(1 / scaleFactor, 1 / scaleFactor, 1 / scaleFactor);
                 
                 // Position frame slightly in front of the reel
-                frame.position.x = positions[i] / scaleFactor;
-                frame.position.y = (0 - machineRootY) / scaleFactor;
-                frame.position.z = reelGlobalZ / scaleFactor;
+                const framePosX = positions[i] / scaleFactor;
+                const framePosY = (0 - machineRootY) / scaleFactor;
+                const framePosZ = reelGlobalZ / scaleFactor;
+                
+                frame.position = new BABYLON.Vector3(framePosX, framePosY, framePosZ);
 
                 // Counteract the root's 180-degree rotation
                 frame.rotation.y = Math.PI;
